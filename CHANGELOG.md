@@ -19,6 +19,9 @@
 - **feat(home):** automatic refresh of Provider Quota — configurable interval (60s–600s) with toggle in Appearance settings; auto-refreshes pinned quota on the home page. ([#2532](https://github.com/diegosouzapw/OmniRoute/pull/2532) — thanks @apoapostolov)
 - **feat(@omniroute/opencode-plugin):** OmniRoute OpenCode plugin — live models fetched from OmniRoute API, combo-aware model listing, Gemini request sanitization, multi-instance support, auth flow integration, and 10 test files. ([#2529](https://github.com/diegosouzapw/OmniRoute/pull/2529) — thanks @mrmm)
 - **feat(executors):** forward OpenCode client headers to upstream providers — OpenCode-specific headers are now forwarded through the executor pipeline for improved compatibility. ([#2538](https://github.com/diegosouzapw/OmniRoute/pull/2538) — thanks @kang-heewon)
+- **feat(fireworks):** add new models with `modelIdPrefix` support — generic registry field that stores short model IDs and prepends the full path prefix before upstream API calls. Adds 6 new Fireworks models, `modelsUrl` for dynamic sync, and Qwen3 reranker. ([#2560](https://github.com/diegosouzapw/OmniRoute/pull/2560) — thanks @HALDRO)
+- **feat(smart-pipeline):** multi-stage pipeline for auto combo routing — rule-based + intent-classifier + domain-specific stages with configurable pipeline router, accuracy benchmarks, and comprehensive tests. ([#2551](https://github.com/diegosouzapw/OmniRoute/pull/2551) — thanks @oyi77)
+- **feat(ops):** skip DB health check on startup via `OMNIROUTE_SKIP_DB_HEALTHCHECK=1` — replaces slow `integrity_check` (7+ min on large WAL) with `quick_check`, and adds env var to skip entirely. ([#2554](https://github.com/diegosouzapw/OmniRoute/pull/2554) — thanks @soyelmismo)
 
 ### 🔧 Bug Fixes
 
@@ -65,12 +68,17 @@
 - **fix(antigravity):** fail over stalled Antigravity sessions — new `ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE` shared constant for pre-response timeout detection, automatic failover to next account when session stalls before headers arrive. Node.js engine range relaxed to `>=20.20.2`. ([#2464](https://github.com/diegosouzapw/OmniRoute/pull/2464) — thanks @dhaern)
 - **fix(deepseek-web):** fix SSE parser, prompt format, and error handling — handles all 3 DeepSeek SSE stream formats (initial fragments, APPEND operations, bare string tokens), simplifies prompt to single-turn to prevent chat marker leakage, and checks `json.code` before token extraction. ([#2502](https://github.com/diegosouzapw/OmniRoute/pull/2502) — thanks @ovehbe)
 - **fix(codex):** accept `auth.json` without `auth_mode` field on import — Codex CLI no longer writes `auth_mode`; import now accepts both formats as long as required tokens are present. Semantic cache read now requires explicit `temperature: 0`. ([#2536](https://github.com/diegosouzapw/OmniRoute/pull/2536) — thanks @janeza2)
+- **fix(freetheai):** add `/chat/completions` to baseUrl to resolve 404 errors. ([#2557](https://github.com/diegosouzapw/OmniRoute/pull/2557) — thanks @lordavadon2)
+- **fix(qoder):** route PAT tokens to Qoder native API instead of DashScope — detects `pt-` prefixed tokens and routes to `api.qoder.com` with proper User-Agent header. ([#2559](https://github.com/diegosouzapw/OmniRoute/pull/2559) — thanks @herjarsa)
+- **fix(perf):** cache compiled RegExp in RTK compression hot path — eliminates thousands of redundant `new RegExp()` instantiations per second. ([#2553](https://github.com/diegosouzapw/OmniRoute/pull/2553) — thanks @soyelmismo)
+- **fix(reasoning-cache):** auto-start periodic cleanup on module load — the `server-init.ts` job was never imported (dead code), causing the `reasoning_cache` table to grow indefinitely. Now runs 30-min cleanup cycles automatically. ([#2552](https://github.com/diegosouzapw/OmniRoute/pull/2552) — thanks @soyelmismo)
 
 ### 🌐 Internationalization
 
 - **i18n(zh-CN):** translate 830 missing UI strings — replaces all `__MISSING__:` placeholders with proper Chinese translations. ([#2523](https://github.com/diegosouzapw/OmniRoute/pull/2523) — thanks @InkshadeWoods)
 - **i18n(dashboard):** add missing dashboard keys and fix EN fallbacks — hundreds of hardcoded English strings across cache, caveman, costs, skills, memory, and evals pages replaced with `t()` calls. ([#2500](https://github.com/diegosouzapw/OmniRoute/pull/2500) — thanks @Gi99lin)
 - **i18n(pt-BR):** complete and fix Brazilian Portuguese translation — comprehensive overhaul of pt-BR locale with ~3000 lines of quality translations, filling all missing keys and correcting existing entries. ([#2543](https://github.com/diegosouzapw/OmniRoute/pull/2543) — thanks @alltomatos)
+- **i18n(ru):** comprehensive Russian translation update — ~2000 lines of corrected and filled translations. ([#2550](https://github.com/diegosouzapw/OmniRoute/pull/2550) — thanks @AgentAlexAI)
 
 ### 📝 Maintenance
 
