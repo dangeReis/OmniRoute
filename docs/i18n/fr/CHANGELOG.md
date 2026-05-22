@@ -28,6 +28,7 @@
 
 ### 🔧 Bug Fixes
 
+- **fix(cli):** persist `STORAGE_ENCRYPTION_KEY` into `DATA_DIR` (not only `~/.omniroute`) and refuse to auto-generate a fresh key when a `storage.sqlite` already exists — silently regenerating it locked users out of their encrypted database. Mirrors the server `bootstrapEnv` guard. (reported by Daniel Nach; original key persistence by @Chewji9875 — follow-up to [#1622](https://github.com/diegosouzapw/OmniRoute/issues/1622))
 - **fix(gemini):** preserve and re-attach the `thoughtSignature` on Gemini thinking-model tool calls so the cached signature is found on the follow-up turn — fixes `[400]: Function call is missing a thought_signature`. ([#2504](https://github.com/diegosouzapw/OmniRoute/issues/2504))
 - **fix(translator):** accept PDFs sent as `input_file` on the Gemini path and as `document` on the Responses/Codex path — content parts normalized across `input_file`/`file`/`document`. ([#2515](https://github.com/diegosouzapw/OmniRoute/issues/2515))
 - **fix(stream):** count `thinking` arrays and `reasoning_details` as useful stream output — a reasoning-only response was misclassified as "Stream ended before producing useful content" (spurious 502). ([#2520](https://github.com/diegosouzapw/OmniRoute/issues/2520))
