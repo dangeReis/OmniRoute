@@ -5,6 +5,7 @@ import { createProviderConnection, isCloudEnabled } from "@/models";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
 import { isAuthRequired, isAuthenticated } from "@/shared/utils/apiAuth";
+import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
 
 const KIRO_AUTH_SERVICE = "https://prod.us-east-1.auth.desktop.kiro.dev";
 
@@ -38,16 +39,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsed = socialExchangeSchema.safeParse(rawBody);
-  if (!parsed.success) {
+  const validation = validateBody(socialExchangeSchema, rawBody);
+  if (isValidationFailure(validation)) {
     return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Missing deviceCode or provider" },
+      { error: validation.error || "Missing deviceCode or provider" },
       { status: 400 }
     );
   }
 
   try {
-    const { deviceCode, provider } = parsed.data;
+    const { deviceCode, provider } = validation.data;
 
     const response = await fetch(`${KIRO_AUTH_SERVICE}/oauth/device/poll`, {
       method: "POST",
