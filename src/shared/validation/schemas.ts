@@ -627,6 +627,12 @@ const comboRuntimeConfigSchema = z
     failoverBeforeRetry: z.boolean().optional(),
     maxSetRetries: z.coerce.number().int().min(0).max(10).optional(),
     setRetryDelayMs: z.coerce.number().int().min(0).max(60000).optional(),
+    zeroLatencyOptimizationsEnabled: z.boolean().optional(),
+    hedging: z.boolean().optional(),
+    hedgeDelayMs: z.coerce.number().int().min(0).max(60000).optional(),
+    fallbackCompressionMode: compressionModeSchema.optional(),
+    fallbackCompressionThreshold: z.coerce.number().int().min(0).max(2_000_000).optional(),
+    predictiveTtftMs: z.coerce.number().int().min(0).max(300000).optional(),
     // Auto-Combo / LKGP Extensions
     candidatePool: z.array(z.string().min(1)).optional(),
     weights: scoringWeightsSchema.optional(),
