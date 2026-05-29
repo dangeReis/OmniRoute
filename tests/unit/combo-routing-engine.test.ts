@@ -1331,6 +1331,82 @@ test("handleComboChat falls through generic 400s when a later priority target su
   assert.deepEqual(calls, ["provider-a/model-a", "provider-b/model-b"]);
 });
 
+test("handleComboChat preserves fallback request bodies when zero-latency optimizations are disabled", async () => {
+  const longToolOutput = "x".repeat(2500);
+  let fallbackBody: any = null;
+
+  const result = await handleComboChat({
+    body: {
+      messages: [
+        { role: "user", content: "please inspect this output" },
+        { role: "tool", content: longToolOutput },
+      ],
+    },
+    combo: {
+      name: "zero-latency-disabled-preserves-body",
+      strategy: "priority",
+      models: ["provider-a/model-a", "provider-b/model-b"],
+      config: { maxRetries: 0, retryDelayMs: 1, fallbackCompressionThreshold: 1 },
+    },
+    handleSingleModel: async (requestBody: any, modelStr: any) => {
+      if (modelStr === "provider-a/model-a") {
+        return errorResponse(500, "first target failed");
+      }
+      fallbackBody = requestBody;
+      return okResponse();
+    },
+    isModelAvailable: async () => true,
+    log: createLog(),
+    settings: null,
+    relayOptions: null as any,
+    allCombos: null,
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(fallbackBody.messages[1].content, longToolOutput);
+});
+
+test("handleComboChat applies fallback compression only after explicit zero-latency opt-in", async () => {
+  const longToolOutput = "x".repeat(2500);
+  let fallbackBody: any = null;
+
+  const result = await handleComboChat({
+    body: {
+      messages: [
+        { role: "user", content: "please inspect this output" },
+        { role: "tool", content: longToolOutput },
+      ],
+    },
+    combo: {
+      name: "zero-latency-enabled-compresses-fallback",
+      strategy: "priority",
+      models: ["provider-a/model-a", "provider-b/model-b"],
+      config: {
+        maxRetries: 0,
+        retryDelayMs: 1,
+        zeroLatencyOptimizationsEnabled: true,
+        fallbackCompressionThreshold: 1,
+      },
+    },
+    handleSingleModel: async (requestBody: any, modelStr: any) => {
+      if (modelStr === "provider-a/model-a") {
+        return errorResponse(500, "first target failed");
+      }
+      fallbackBody = requestBody;
+      return okResponse();
+    },
+    isModelAvailable: async () => true,
+    log: createLog(),
+    settings: null,
+    relayOptions: null as any,
+    allCombos: null,
+  });
+
+  assert.equal(result.status, 200);
+  assert.notEqual(fallbackBody.messages[1].content, longToolOutput);
+  assert.match(fallbackBody.messages[1].content, /\.\.\.\[truncated\]$/);
+});
+
 test("handleComboChat round-robin falls through generic 400s when a later model succeeds", async () => {
   const calls: any[] = [];
 
@@ -2035,10 +2111,7 @@ test("handleComboChat standalone lkgp strategy updates LKGP after a successful c
   // Give the async fire-and-forget LKGP update a chance to execute
   let persistedProvider: any = null;
   for (let i = 0; i < 20; i++) {
-    persistedProvider = await settingsDb.getLKGP(
-      "standalone-lkgp-save",
-      "standalone-lkgp-save"
-    );
+    persistedProvider = await settingsDb.getLKGP("standalone-lkgp-save", "standalone-lkgp-save");
     if (persistedProvider?.provider === "openai") {
       break;
     }
