@@ -565,7 +565,7 @@ export default function ComboDefaultsTab() {
                 {translateOrFallback(
                   t,
                   "zeroLatencyOptimizationsDesc",
-                  "Opt in to hedging, predictive TTFT skips, and proactive fallback compression. Leave off to preserve request bodies exactly."
+                  "Opt in to hedging, predictive TTFT skips, and proactive fallback compression. Leave off to prevent these latency features from racing targets or compressing fallback requests."
                 )}
               </p>
             </div>

@@ -155,7 +155,7 @@ test("combo config schema accepts explicit zero-latency opt-in controls", () => 
       zeroLatencyOptimizationsEnabled: true,
       hedging: true,
       hedgeDelayMs: 250,
-      fallbackCompressionMode: "off",
+      fallbackCompressionMode: "lite",
       fallbackCompressionThreshold: 2500,
       predictiveTtftMs: 1800,
     },
@@ -164,9 +164,45 @@ test("combo config schema accepts explicit zero-latency opt-in controls", () => 
   assert.equal(parsed.config.zeroLatencyOptimizationsEnabled, true);
   assert.equal(parsed.config.hedging, true);
   assert.equal(parsed.config.hedgeDelayMs, 250);
-  assert.equal(parsed.config.fallbackCompressionMode, "off");
+  assert.equal(parsed.config.fallbackCompressionMode, "lite");
   assert.equal(parsed.config.fallbackCompressionThreshold, 2500);
   assert.equal(parsed.config.predictiveTtftMs, 1800);
+});
+
+test("combo config schema rejects enabled zero-latency subfeatures without opt-in", () => {
+  const result = createComboSchema.safeParse({
+    name: "zero-latency-noop",
+    models: ["openai/gpt-4o-mini", "anthropic/claude-3-haiku"],
+    config: {
+      hedging: true,
+      fallbackCompressionMode: "lite",
+      predictiveTtftMs: 1800,
+    },
+  });
+
+  assert.equal(result.success, false);
+  assert.deepEqual(
+    result.error.issues.map((issue) => issue.path.join(".")),
+    ["config.hedging", "config.predictiveTtftMs", "config.fallbackCompressionMode"]
+  );
+});
+
+test("combo config schema allows zero-latency tuning fields when subfeatures stay disabled", () => {
+  const parsed = createComboSchema.parse({
+    name: "zero-latency-disabled-tuning",
+    models: ["openai/gpt-4o-mini", "anthropic/claude-3-haiku"],
+    config: {
+      hedgeDelayMs: 250,
+      fallbackCompressionMode: "off",
+      fallbackCompressionThreshold: 2500,
+      predictiveTtftMs: 0,
+    },
+  });
+
+  assert.equal(parsed.config.hedgeDelayMs, 250);
+  assert.equal(parsed.config.fallbackCompressionMode, "off");
+  assert.equal(parsed.config.fallbackCompressionThreshold, 2500);
+  assert.equal(parsed.config.predictiveTtftMs, 0);
 });
 
 test("resolveComboTargetTimeoutMs inherits the upstream timeout and only shortens it", () => {

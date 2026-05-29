@@ -660,7 +660,29 @@ const comboRuntimeConfigSchema = z
     shadowRouting: shadowRoutingSchema.optional(),
     evalRouting: evalRoutingSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    if (config.zeroLatencyOptimizationsEnabled === true) return;
+
+    const addZeroLatencyIssue = (path: string[]) => {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "zeroLatencyOptimizationsEnabled must be true to enable zero-latency combo features",
+        path,
+      });
+    };
+
+    if (config.hedging === true) {
+      addZeroLatencyIssue(["hedging"]);
+    }
+    if (typeof config.predictiveTtftMs === "number" && config.predictiveTtftMs > 0) {
+      addZeroLatencyIssue(["predictiveTtftMs"]);
+    }
+    if (config.fallbackCompressionMode && config.fallbackCompressionMode !== "off") {
+      addZeroLatencyIssue(["fallbackCompressionMode"]);
+    }
+  });
 
 const comboNameSchema = z
   .string()
