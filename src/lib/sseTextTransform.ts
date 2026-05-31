@@ -24,6 +24,13 @@ export function createSseTextTransform(
       lastPrefix = prefix;
       const segment = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
       if (segment === "[DONE]") {
+        if (onFlush) {
+          const flushedJson = onFlush(lastJson);
+          if (flushedJson) {
+            const prefix = lastPrefix || "data: ";
+            controller.enqueue(encoder.encode(prefix + JSON.stringify(flushedJson) + "\n"));
+          }
+        }
         controller.enqueue(encoder.encode(line + "\n"));
         return;
       }

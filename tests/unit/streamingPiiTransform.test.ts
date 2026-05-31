@@ -79,6 +79,43 @@ test("createPiiSseTransform redacts PII split across chunk boundaries", async ()
     "redaction marker should be present in final stream");
 });
 
+test("createPiiSseTransform flushes final redacted content before [DONE] sentinel", async () => {
+  const transform = createPiiSseTransform();
+
+  const chunk1 = `data: {"choices":[{"delta":{"content":"my email is john@"}}]}\n\n`;
+  const chunk2 = `data: {"choices":[{"delta":{"content":"example.com"}}]}\n\n`;
+  const chunk3 = `data: [DONE]\n\n`;
+
+  const writer = transform.writable.getWriter();
+  const reader = transform.readable.getReader();
+
+  const writePromise = (async () => {
+    await writer.write(new TextEncoder().encode(chunk1));
+    await writer.write(new TextEncoder().encode(chunk2));
+    await writer.write(new TextEncoder().encode(chunk3));
+    await writer.close();
+  })();
+
+  const outputChunks: string[] = [];
+  let res = await reader.read();
+  while (!res.done) {
+    outputChunks.push(new TextDecoder().decode(res.value));
+    res = await reader.read();
+  }
+  await writePromise;
+
+  const fullOutput = outputChunks.join("");
+  const lines = fullOutput.split("\n").map(l => l.trim()).filter(Boolean);
+
+  const doneIndex = lines.findIndex(l => l === "data: [DONE]");
+  assert.ok(doneIndex !== -1, "[DONE] sentinel should be in the stream");
+  
+  assert.equal(doneIndex, lines.length - 1, "nothing should be enqueued after the [DONE] sentinel");
+
+  const redactedLine = lines.find((l, idx) => idx < doneIndex && (l.includes("REDACTED") || l.includes("[EMAIL")));
+  assert.ok(redactedLine, "redacted content chunk should be enqueued before the [DONE] sentinel");
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;

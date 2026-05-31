@@ -8,7 +8,7 @@ export function createPiiSseTransform(): TransformStream {
     toolArgs: "",
     partialJson: ""
   };
-  const W = 100;
+  const W = 40;
 
   const processor = (text: string, field: FieldCategory): string => {
     buffers[field] += text;
