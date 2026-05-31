@@ -65,6 +65,20 @@ test("createPiiSseTransform passes non-PII content through unchanged", async () 
     "non-PII content should pass through unchanged");
 });
 
+test("createPiiSseTransform redacts PII split across chunk boundaries", async () => {
+  const transform = createPiiSseTransform();
+
+  const chunk1 = `data: {"choices":[{"delta":{"content":"email is john@"}}]}\n\n`;
+  const chunk2 = `data: {"choices":[{"delta":{"content":"example.com"}}]}\n\n`;
+
+  const output = await testTransform(transform, [chunk1, chunk2]);
+
+  assert.ok(!output.includes("john@example.com"),
+    "email split across chunks should be redacted");
+  assert.ok(output.includes("REDACTED") || output.includes("[EMAIL"),
+    "redaction marker should be present in final stream");
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;

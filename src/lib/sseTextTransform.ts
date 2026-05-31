@@ -2,12 +2,14 @@ export type FieldCategory = "content" | "reasoning" | "toolArgs" | "partialJson"
 
 export function createSseTextTransform(
   processor: (text: string, field: FieldCategory) => string,
-  onFlush?: () => string,
+  onFlush?: (lastJson: any) => any,
   onCancel?: () => void,
 ): TransformStream {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder("utf-8");
   let lineBuffer = "";
+  let lastPrefix = "data: ";
+  let lastJson: any = null;
 
   const handleLine = (line: string, controller: TransformStreamDefaultController) => {
     const trimmed = line.trim();
@@ -18,15 +20,18 @@ export function createSseTextTransform(
     }
 
     if (line.startsWith("data:")) {
+      const prefix = line.startsWith("data: ") ? "data: " : "data:";
+      lastPrefix = prefix;
       const segment = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
       if (segment === "[DONE]") {
         controller.enqueue(encoder.encode(line + "\n"));
         return;
       }
 
-      if (segment.startsWith("{") || segment.startsWith("[")) {
+      const trimmedSegment = segment.trim();
+      if (trimmedSegment.startsWith("{") || trimmedSegment.startsWith("[")) {
         try {
-          const json = JSON.parse(segment);
+          const json = JSON.parse(trimmedSegment);
           
           const processDeep = (val: any): any => {
             if (!val) return val;
@@ -50,7 +55,7 @@ export function createSseTextTransform(
           // OpenAI CC
           if (json.choices && Array.isArray(json.choices)) {
             for (const choice of json.choices) {
-              if (choice.delta) {
+              if (choice?.delta) {
                 const delta = choice.delta;
                 if (typeof delta.content === "string") {
                   delta.content = processor(delta.content, "content");
@@ -73,7 +78,7 @@ export function createSseTextTransform(
                 }
                 if (Array.isArray(delta.tool_calls)) {
                   for (const tool of delta.tool_calls) {
-                    if (tool?.function && typeof tool.function.arguments === "string") {
+                    if (typeof tool?.function?.arguments === "string") {
                       tool.function.arguments = processor(tool.function.arguments, "toolArgs");
                       matched = true;
                     }
@@ -105,7 +110,7 @@ export function createSseTextTransform(
             json.delta = processor(json.delta, "content");
             matched = true;
           }
-          if (json.item?.arguments && typeof json.item.arguments === "string") {
+          if (typeof json.item?.arguments === "string") {
             json.item.arguments = processor(json.item.arguments, "toolArgs");
             matched = true;
           }
@@ -138,18 +143,16 @@ export function createSseTextTransform(
             processDeep(json);
           }
 
-          const prefix = line.startsWith("data: ") ? "data: " : "data:";
+          lastJson = JSON.parse(JSON.stringify(json));
           controller.enqueue(encoder.encode(prefix + JSON.stringify(json) + "\n"));
         } catch {
           // JSON parsing failed, treat segment as raw text delta (fail-open)
           const processed = processor(segment, "content");
-          const prefix = line.startsWith("data: ") ? "data: " : "data:";
           controller.enqueue(encoder.encode(prefix + processed + "\n"));
         }
       } else {
         // Starts with data: but not JSON, process as raw text
         const processed = processor(segment, "content");
-        const prefix = line.startsWith("data: ") ? "data: " : "data:";
         controller.enqueue(encoder.encode(prefix + processed + "\n"));
       }
     } else {
@@ -181,9 +184,10 @@ export function createSseTextTransform(
           handleLine(remaining, controller);
         }
         if (onFlush) {
-          const flushed = onFlush();
-          if (flushed) {
-            controller.enqueue(encoder.encode(flushed));
+          const flushedJson = onFlush(lastJson);
+          if (flushedJson) {
+            const prefix = lastPrefix || "data: ";
+            controller.enqueue(encoder.encode(prefix + JSON.stringify(flushedJson) + "\n"));
           }
         }
       } catch (err) {
