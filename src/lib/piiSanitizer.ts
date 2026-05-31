@@ -16,12 +16,12 @@
 import { isFeatureFlagEnabled, resolveFeatureFlag } from "@/shared/utils/featureFlags";
 
 const isEnabled = () => isFeatureFlagEnabled("PII_RESPONSE_SANITIZATION");
-const VALID_MODES = ["redact", "warn", "block"] as const;
+const VALID_MODES = ["redact", "warn", "block", "false"] as const;
 type PiiMode = typeof VALID_MODES[number];
 
 const getMode = (): PiiMode => {
   const value = resolveFeatureFlag("PII_RESPONSE_SANITIZATION_MODE");
-  if (value === "false" || value === "") return "redact";
+  if (value === "") return "redact";
   if ((VALID_MODES as readonly string[]).includes(value)) return value as PiiMode;
   console.error(`[PII] Invalid PII_RESPONSE_SANITIZATION_MODE: "${value}", defaulting to "redact"`);
   return "redact";
