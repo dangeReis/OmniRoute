@@ -141,14 +141,17 @@ export function sanitizePII(text: string): SanitizeResult {
     }
   }
 
-  if (detections.length > 0 && mode === "warn") {
-    console.warn(
-      `[PII] Detected PII in response: ${detections.map((d) => `${d.pattern}(${d.count})`).join(", ")}`
-    );
+  if (detections.length > 0) {
+    if (mode === "warn") {
+      console.warn(
+        `[PII] Detected PII in response: ${detections.map((d) => `${d.pattern}(${d.count})`).join(", ")}`
+      );
+    } else if (mode === "block") {
+      throw new Error(`[PII] Blocked response due to PII detection: ${detections.map(d => d.pattern).join(", ")}`);
+    }
   }
 
   return {
-    // TODO: "block" mode should reject the response entirely. Currently falls through to return original text.
     text: mode === "redact" ? sanitized : text,
     detections,
     redacted: mode === "redact" && detections.length > 0,
@@ -206,8 +209,11 @@ export function sanitizePIIResponse(response: any): any {
         }
       }
     }
-  } catch {
-    // Fail open — don't break the response
+  } catch (err: any) {
+    if (err?.message?.startsWith("[PII] Blocked response")) {
+      throw err;
+    }
+    // Fail open — don't break the response for structural parsing errors
   }
 
   return response;

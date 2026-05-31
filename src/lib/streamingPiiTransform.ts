@@ -14,10 +14,20 @@ export function createPiiSseTransform(options?: PiiTransformOptions): TransformS
   };
   const W = Math.max(1, options?.windowSize ?? (parseInt(process.env.PII_WINDOW_SIZE || "", 10) || 100));
 
-  const processor = (text: string, field: FieldCategory): string => {
+  const processor = (text: string, field: FieldCategory, isStopSignal = false): string => {
     buffers[field] += text;
     const sanitized = sanitizePIIChunk(buffers[field]);
-    const emitLength = Math.max(0, sanitized.length - W);
+    let emitLength = isStopSignal ? sanitized.length : Math.max(0, sanitized.length - W);
+    
+    // Prevent slicing in the middle of a UTF-16 surrogate pair (e.g. emojis)
+    if (emitLength > 0 && emitLength < sanitized.length) {
+      const charCode = sanitized.charCodeAt(emitLength - 1);
+      // High surrogate range is 0xD800 - 0xDBFF
+      if (charCode >= 0xd800 && charCode <= 0xdbff) {
+        emitLength -= 1;
+      }
+    }
+    
     const toEmit = sanitized.slice(0, emitLength);
     buffers[field] = sanitized.slice(emitLength);
     return toEmit;

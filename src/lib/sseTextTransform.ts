@@ -1,7 +1,7 @@
 export type FieldCategory = "content" | "reasoning" | "toolArgs" | "partialJson";
 
 export function createSseTextTransform(
-  processor: (text: string, field: FieldCategory) => string,
+  processor: (text: string, field: FieldCategory, isStopSignal?: boolean) => string,
   onFlush?: (lastJson: any) => any,
   onCancel?: () => void,
 ): TransformStream {
@@ -45,6 +45,14 @@ export function createSseTextTransform(
           const json = JSON.parse(trimmedSegment);
           
           let matched = false;
+          
+          const isStopSignal = 
+            (json.choices && json.choices.some((c: any) => c.finish_reason)) ||
+            (json.candidates && json.candidates.some((c: any) => c.finishReason)) ||
+            (json.type === "content_block_stop") ||
+            (json.type === "message_stop") ||
+            (json.type === "message_delta" && json.delta?.stop_reason) ||
+            ["response.done", "response.completed", "response.cancelled", "response.failed"].includes(json.type);
 
           // OpenAI CC
           if (json.choices && Array.isArray(json.choices)) {
@@ -52,28 +60,27 @@ export function createSseTextTransform(
               if (choice?.delta) {
                 const delta = choice.delta;
                 if (typeof delta.content === "string") {
-                  delta.content = processor(delta.content, "content");
+                  delta.content = processor(delta.content, "content", isStopSignal);
                   matched = true;
                 } else if (Array.isArray(delta.content)) {
                   for (const part of delta.content) {
                     if (part && typeof part.text === "string") {
-                      part.text = processor(part.text, "content");
+                      part.text = processor(part.text, "content", isStopSignal);
                       matched = true;
                     }
                   }
                 }
                 if (typeof delta.reasoning_content === "string") {
-                  delta.reasoning_content = processor(delta.reasoning_content, "reasoning");
+                  delta.reasoning_content = processor(delta.reasoning_content, "reasoning", isStopSignal);
                   matched = true;
-                }
-                if (typeof delta.reasoning === "string") {
-                  delta.reasoning = processor(delta.reasoning, "reasoning");
+                } else if (typeof delta.reasoning === "string") {
+                  delta.reasoning = processor(delta.reasoning, "reasoning", isStopSignal);
                   matched = true;
                 }
                 if (Array.isArray(delta.tool_calls)) {
                   for (const tool of delta.tool_calls) {
                     if (typeof tool?.function?.arguments === "string") {
-                      tool.function.arguments = processor(tool.function.arguments, "toolArgs");
+                      tool.function.arguments = processor(tool.function.arguments, "toolArgs", isStopSignal);
                       matched = true;
                     }
                   }
@@ -86,34 +93,26 @@ export function createSseTextTransform(
           else if (json.delta && typeof json.delta === "object") {
             const delta = json.delta;
             if (typeof delta.text === "string") {
-              delta.text = processor(delta.text, "content");
+              delta.text = processor(delta.text, "content", isStopSignal);
               matched = true;
             }
             if (typeof delta.thinking === "string") {
-              delta.thinking = processor(delta.thinking, "reasoning");
+              delta.thinking = processor(delta.thinking, "reasoning", isStopSignal);
               matched = true;
             }
             if (typeof delta.partial_json === "string") {
-              delta.partial_json = processor(delta.partial_json, "partialJson");
+              delta.partial_json = processor(delta.partial_json, "partialJson", isStopSignal);
               matched = true;
             }
           }
 
           // Responses API
           else if (typeof json.delta === "string") {
-            json.delta = processor(json.delta, "content");
+            json.delta = processor(json.delta, "content", isStopSignal);
             matched = true;
           }
-          // The Responses API json.item.arguments was previously separate but should be part of this if-else chain.
-          // Wait, is json.item.arguments mutually exclusive with json.delta?
-          // Looking at the original:
-          // if (typeof json.delta === "string") { ... }
-          // if (typeof json.item?.arguments === "string") { ... }
-          // Let's just group them into one else if check that checks either.
-          // Or wait, responses API might have BOTH in one chunk? Usually not. But we can just use independent mutually-exclusive branches for different root shapes.
-          // Let's make "Responses API (delta)" and "Responses API (item)" else ifs.
           else if (typeof json.item?.arguments === "string") {
-            json.item.arguments = processor(json.item.arguments, "toolArgs");
+            json.item.arguments = processor(json.item.arguments, "toolArgs", isStopSignal);
             matched = true;
           }
 
@@ -123,7 +122,7 @@ export function createSseTextTransform(
               if (cand?.content && Array.isArray(cand.content.parts)) {
                 for (const part of cand.content.parts) {
                   if (part && typeof part.text === "string") {
-                    part.text = processor(part.text, "content");
+                    part.text = processor(part.text, "content", isStopSignal);
                     matched = true;
                   }
                 }
@@ -133,11 +132,10 @@ export function createSseTextTransform(
 
           // Generic
           else if (typeof json.content === "string") {
-            json.content = processor(json.content, "content");
+            json.content = processor(json.content, "content", isStopSignal);
             matched = true;
-          }
-          else if (typeof json.text === "string") {
-            json.text = processor(json.text, "content");
+          } else if (typeof json.text === "string") {
+            json.text = processor(json.text, "content", isStopSignal);
             matched = true;
           }
 
@@ -145,19 +143,12 @@ export function createSseTextTransform(
             console.warn("[SSE-TRANSFORM] Unrecognized SSE JSON format, passing through unprocessed. Keys:", Object.keys(json).slice(0, 5).join(", "));
           }
 
-          const isStopSignal = 
-            (json.choices && json.choices.some((c: any) => c.finish_reason)) ||
-            (json.candidates && json.candidates.some((c: any) => c.finishReason)) ||
-            (json.type === "content_block_stop") ||
-            (json.type === "message_stop") ||
-            (json.type === "message_delta" && json.delta?.stop_reason) ||
-            ["response.done", "response.completed", "response.cancelled", "response.failed"].includes(json.type);
-
           if (isStopSignal && onFlush && !flushed) {
-            const flushedValue = onFlush(lastJson);
+            const flushedValue = onFlush(lastJson || json); // Use json as fallback just in case
             if (flushedValue) {
               const prefix = lastPrefix || "data: ";
               const payload = typeof flushedValue === "string" ? flushedValue : JSON.stringify(flushedValue);
+              // Only enqueue if the flushed value actually has content (onFlush usually returns null if buffer is empty now)
               controller.enqueue(encoder.encode(prefix + payload + "\n"));
             }
             flushed = true;
