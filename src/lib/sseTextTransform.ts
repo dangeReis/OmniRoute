@@ -145,6 +145,24 @@ export function createSseTextTransform(
             console.warn("[SSE-TRANSFORM] Unrecognized SSE JSON format, passing through unprocessed. Keys:", Object.keys(json).slice(0, 5).join(", "));
           }
 
+          const isStopSignal = 
+            (json.choices && json.choices.some((c: any) => c.finish_reason)) ||
+            (json.candidates && json.candidates.some((c: any) => c.finishReason)) ||
+            (json.type === "content_block_stop") ||
+            (json.type === "message_stop") ||
+            (json.type === "message_delta" && json.delta?.stop_reason) ||
+            ["response.done", "response.completed", "response.cancelled", "response.failed"].includes(json.type);
+
+          if (isStopSignal && onFlush && !flushed) {
+            const flushedValue = onFlush(lastJson);
+            if (flushedValue) {
+              const prefix = lastPrefix || "data: ";
+              const payload = typeof flushedValue === "string" ? flushedValue : JSON.stringify(flushedValue);
+              controller.enqueue(encoder.encode(prefix + payload + "\n"));
+            }
+            flushed = true;
+          }
+
           lastJson = json;
           controller.enqueue(encoder.encode(prefix + JSON.stringify(json) + "\n"));
         } catch {
@@ -175,7 +193,11 @@ export function createSseTextTransform(
           handleLine(line, controller);
         }
       } catch (err) {
-        const context = typeof chunk === "string" ? chunk.slice(0, 200) : String(chunk).slice(0, 200);
+        const context = typeof chunk === "string" 
+          ? chunk.slice(0, 200) 
+          : chunk instanceof Uint8Array 
+            ? new TextDecoder().decode(chunk.slice(0, 200)) 
+            : String(chunk).slice(0, 200);
         console.error("[SSE-TRANSFORM] Error in transform:", err, "chunk:", context);
         lineBuffer = "";
         errored = true;

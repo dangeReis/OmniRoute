@@ -64,9 +64,16 @@ export function createPiiSseTransform(options?: PiiTransformOptions): TransformS
           buffers.reasoning = "";
         }
         if (buffers.toolArgs) {
-          if (Array.isArray(delta.tool_calls) && delta.tool_calls[0]?.function) {
-            delta.tool_calls[0].function.arguments = buffers.toolArgs;
+          if (!Array.isArray(delta.tool_calls)) {
+            delta.tool_calls = [];
           }
+          if (delta.tool_calls.length === 0) {
+            delta.tool_calls.push({ function: {} });
+          }
+          if (!delta.tool_calls[0].function) {
+            delta.tool_calls[0].function = {};
+          }
+          delta.tool_calls[0].function.arguments = buffers.toolArgs;
           buffers.toolArgs = "";
         }
         if (buffers.partialJson) buffers.partialJson = "";
