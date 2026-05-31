@@ -16,10 +16,15 @@
 import { isFeatureFlagEnabled, resolveFeatureFlag } from "@/shared/utils/featureFlags";
 
 const isEnabled = () => isFeatureFlagEnabled("PII_RESPONSE_SANITIZATION");
-const getMode = (): "redact" | "warn" | "block" => {
+const VALID_MODES = ["redact", "warn", "block"] as const;
+type PiiMode = typeof VALID_MODES[number];
+
+const getMode = (): PiiMode => {
   const value = resolveFeatureFlag("PII_RESPONSE_SANITIZATION_MODE");
   if (value === "false" || value === "") return "redact";
-  return (value as "redact" | "warn" | "block") || "redact";
+  if ((VALID_MODES as readonly string[]).includes(value)) return value as PiiMode;
+  console.error(`[PII] Invalid PII_RESPONSE_SANITIZATION_MODE: "${value}", defaulting to "redact"`);
+  return "redact";
 };
 
 // ── PII Patterns ──
@@ -143,6 +148,7 @@ export function sanitizePII(text: string): SanitizeResult {
   }
 
   return {
+    // TODO: "block" mode should reject the response entirely. Currently falls through to return original text.
     text: mode === "redact" ? sanitized : text,
     detections,
     redacted: mode === "redact" && detections.length > 0,
@@ -174,6 +180,30 @@ export function sanitizePIIResponse(response: any): any {
       if (choice.delta?.content) {
         const result = sanitizePII(choice.delta.content);
         choice.delta.content = result.text;
+      }
+    }
+
+    // Claude format
+    if (Array.isArray(response.content)) {
+      for (const block of response.content) {
+        if (block && typeof block.text === "string") {
+          const result = sanitizePII(block.text);
+          block.text = result.text;
+        }
+      }
+    }
+
+    // Gemini format
+    if (Array.isArray(response.candidates)) {
+      for (const cand of response.candidates) {
+        if (cand?.content && Array.isArray(cand.content.parts)) {
+          for (const part of cand.content.parts) {
+            if (part && typeof part.text === "string") {
+              const result = sanitizePII(part.text);
+              part.text = result.text;
+            }
+          }
+        }
       }
     }
   } catch {

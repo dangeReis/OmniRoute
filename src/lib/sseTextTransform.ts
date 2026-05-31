@@ -10,6 +10,8 @@ export function createSseTextTransform(
   let lineBuffer = "";
   let lastPrefix = "data: ";
   let lastJson: any = null;
+  let flushed = false;
+  let errored = false;
 
   const handleLine = (line: string, controller: TransformStreamDefaultController) => {
     const trimmed = line.trim();
@@ -25,11 +27,13 @@ export function createSseTextTransform(
       const segment = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
       if (segment === "[DONE]") {
         if (onFlush) {
-          const flushedJson = onFlush(lastJson);
-          if (flushedJson) {
+          const flushedValue = onFlush(lastJson);
+          if (flushedValue) {
             const prefix = lastPrefix || "data: ";
-            controller.enqueue(encoder.encode(prefix + JSON.stringify(flushedJson) + "\n"));
+            const payload = typeof flushedValue === "string" ? flushedValue : JSON.stringify(flushedValue);
+            controller.enqueue(encoder.encode(prefix + payload + "\n"));
           }
+          flushed = true;
         }
         controller.enqueue(encoder.encode(line + "\n"));
         return;
@@ -40,23 +44,6 @@ export function createSseTextTransform(
         try {
           const json = JSON.parse(trimmedSegment);
           
-          const processDeep = (val: any): any => {
-            if (!val) return val;
-            if (typeof val === "string") {
-              return processor(val, "content");
-            }
-            if (Array.isArray(val)) {
-              for (let i = 0; i < val.length; i++) {
-                val[i] = processDeep(val[i]);
-              }
-            } else if (typeof val === "object") {
-              for (const key of Object.keys(val)) {
-                val[key] = processDeep(val[key]);
-              }
-            }
-            return val;
-          };
-
           let matched = false;
 
           // OpenAI CC
@@ -96,7 +83,7 @@ export function createSseTextTransform(
           }
 
           // Claude
-          if (json.delta && typeof json.delta === "object") {
+          else if (json.delta && typeof json.delta === "object") {
             const delta = json.delta;
             if (typeof delta.text === "string") {
               delta.text = processor(delta.text, "content");
@@ -113,17 +100,25 @@ export function createSseTextTransform(
           }
 
           // Responses API
-          if (typeof json.delta === "string") {
+          else if (typeof json.delta === "string") {
             json.delta = processor(json.delta, "content");
             matched = true;
           }
-          if (typeof json.item?.arguments === "string") {
+          // The Responses API json.item.arguments was previously separate but should be part of this if-else chain.
+          // Wait, is json.item.arguments mutually exclusive with json.delta?
+          // Looking at the original:
+          // if (typeof json.delta === "string") { ... }
+          // if (typeof json.item?.arguments === "string") { ... }
+          // Let's just group them into one else if check that checks either.
+          // Or wait, responses API might have BOTH in one chunk? Usually not. But we can just use independent mutually-exclusive branches for different root shapes.
+          // Let's make "Responses API (delta)" and "Responses API (item)" else ifs.
+          else if (typeof json.item?.arguments === "string") {
             json.item.arguments = processor(json.item.arguments, "toolArgs");
             matched = true;
           }
 
           // Gemini
-          if (Array.isArray(json.candidates)) {
+          else if (Array.isArray(json.candidates)) {
             for (const cand of json.candidates) {
               if (cand?.content && Array.isArray(cand.content.parts)) {
                 for (const part of cand.content.parts) {
@@ -137,20 +132,20 @@ export function createSseTextTransform(
           }
 
           // Generic
-          if (typeof json.content === "string") {
+          else if (typeof json.content === "string") {
             json.content = processor(json.content, "content");
             matched = true;
           }
-          if (typeof json.text === "string") {
+          else if (typeof json.text === "string") {
             json.text = processor(json.text, "content");
             matched = true;
           }
 
           if (!matched) {
-            processDeep(json);
+            console.warn("[SSE-TRANSFORM] Unrecognized SSE JSON format, passing through unprocessed. Keys:", Object.keys(json).slice(0, 5).join(", "));
           }
 
-          lastJson = JSON.parse(JSON.stringify(json));
+          lastJson = json;
           controller.enqueue(encoder.encode(prefix + JSON.stringify(json) + "\n"));
         } catch {
           // JSON parsing failed, treat segment as raw text delta (fail-open)
@@ -180,25 +175,31 @@ export function createSseTextTransform(
           handleLine(line, controller);
         }
       } catch (err) {
-        console.error("[SSE-TRANSFORM] Error in transform:", err);
-        controller.enqueue(chunk);
+        const context = typeof chunk === "string" ? chunk.slice(0, 200) : String(chunk).slice(0, 200);
+        console.error("[SSE-TRANSFORM] Error in transform:", err, "chunk:", context);
+        lineBuffer = "";
+        errored = true;
+        controller.error(err);
       }
     },
     flush(controller) {
+      if (errored) return;
       try {
         const remaining = decoder.decode() + lineBuffer;
         if (remaining) {
           handleLine(remaining, controller);
         }
-        if (onFlush) {
-          const flushedJson = onFlush(lastJson);
-          if (flushedJson) {
+        if (onFlush && !flushed) {
+          const flushedValue = onFlush(lastJson);
+          if (flushedValue) {
             const prefix = lastPrefix || "data: ";
-            controller.enqueue(encoder.encode(prefix + JSON.stringify(flushedJson) + "\n"));
+            const payload = typeof flushedValue === "string" ? flushedValue : JSON.stringify(flushedValue);
+            controller.enqueue(encoder.encode(prefix + payload + "\n"));
           }
         }
       } catch (err) {
         console.error("[SSE-TRANSFORM] Error in flush:", err);
+        controller.error(err);
       }
     },
     cancel(reason: any) {

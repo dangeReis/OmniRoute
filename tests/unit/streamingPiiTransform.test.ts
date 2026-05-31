@@ -116,6 +116,72 @@ test("createPiiSseTransform flushes final redacted content before [DONE] sentine
   assert.ok(redactedLine, "redacted content chunk should be enqueued before the [DONE] sentinel");
 });
 
+test("content flushed when last chunk is metadata-only (no delta.content)", async () => {
+  const transform = createPiiSseTransform();
+
+  const chunk1 = `data: {"choices":[{"delta":{"content":"hello world"}}]}\n\n`;
+  const chunk2 = `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n`;
+  const chunk3 = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [chunk1, chunk2, chunk3]);
+
+  assert.ok(output.includes("hello world"),
+    "buffered content must be flushed even when last chunk has no delta.content");
+});
+
+test("no duplicate content when stream has [DONE] and normal close", async () => {
+  const transform = createPiiSseTransform();
+
+  const chunk1 = `data: {"choices":[{"delta":{"content":"test content here"}}]}\n\n`;
+  const chunk2 = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [chunk1, chunk2]);
+
+  // Count occurrences of the content
+  const matches = output.match(/test content here/g) || [];
+  assert.ok(matches.length <= 1, "content should not be duplicated by double-flush");
+});
+
+test("configurable windowSize is respected", async () => {
+  // We need to type the options manually in the test since the signature hasn't changed yet,
+  // or cast it. createPiiSseTransform doesn't take args yet, so passing an arg will be ignored
+  // until we change the signature. But in TypeScript it might error if we pass an arg.
+  // Wait, I will just cast it as any.
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  // Send 20 chars of content
+  const input = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
+  const chunk2 = `data: [DONE]\n\n`;
+  const output = await testTransform(transform, [input, chunk2]);
+
+  // All 20 chars should appear in the final output (10 emitted, 10 flushed)
+  assert.ok(output.includes("abcdefghij"), "first 10 chars should be emitted immediately");
+  assert.ok(output.includes("klmnopqrst"), "last 10 chars should be flushed");
+});
+
+test("Gemini format PII redaction", async () => {
+  const transform = createPiiSseTransform();
+
+  const input = `data: {"candidates":[{"content":{"parts":[{"text":"email is john@example.com"}]}}]}\n\n`;
+  const done = `data: [DONE]\n\n`;
+  const output = await testTransform(transform, [input, done]);
+
+  assert.ok(!output.includes("john@example.com"), "email should be redacted in Gemini format");
+});
+
+test("PII split across sliding window boundary is still redacted", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  // Email is 20 chars, window is 10 — the email straddles the boundary
+  const chunk1 = `data: {"choices":[{"delta":{"content":"contact user@"}}]}\n\n`;
+  const chunk2 = `data: {"choices":[{"delta":{"content":"example.com today"}}]}\n\n`;
+  const done = `data: [DONE]\n\n`;
+  const output = await testTransform(transform, [chunk1, chunk2, done]);
+
+  assert.ok(!output.includes("user@example.com"),
+    "email spanning window boundary should be redacted");
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;
