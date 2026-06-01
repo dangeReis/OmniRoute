@@ -1,7 +1,7 @@
 export type FieldCategory = "content" | "reasoning" | "toolArgs" | "partialJson";
 
 export function createSseTextTransform(
-  processor: (text: string, field: FieldCategory, isStopSignal?: boolean) => string,
+  processor: (text: string, field: FieldCategory, isStopSignal?: boolean, index?: number) => string,
   onFlush?: (lastJson: any) => any,
   onCancel?: () => void,
 ): TransformStream {
@@ -54,112 +54,42 @@ export function createSseTextTransform(
             (json.type === "message_delta" && json.delta?.stop_reason) ||
             ["response.done", "response.completed", "response.cancelled", "response.failed"].includes(json.type);
 
-          // OpenAI CC
-          if (json.choices && Array.isArray(json.choices)) {
-            for (const choice of json.choices) {
-              if (choice?.delta) {
-                const delta = choice.delta;
-                if (typeof delta.content === "string") {
-                  delta.content = processor(delta.content, "content", isStopSignal);
-                  matched = true;
-                } else if (Array.isArray(delta.content)) {
-                  for (const part of delta.content) {
-                    if (part && typeof part.text === "string") {
-                      part.text = processor(part.text, "content", isStopSignal);
-                      matched = true;
-                    }
-                  }
+          // Recursively sanitize all string properties (except system metadata)
+          const sanitizeObject = (obj: any, currentIndex = 0) => {
+            if (!obj || typeof obj !== "object") return;
+
+            let idx = currentIndex;
+            if (typeof obj.index === "number") {
+              idx = obj.index;
+            }
+
+            for (const key of Object.keys(obj)) {
+              if (["id", "model", "object", "created", "finish_reason", "finishReason", "role", "type", "index", "stop_reason"].includes(key)) {
+                continue;
+              }
+              if (typeof obj[key] === "string") {
+                const val = obj[key];
+                // Determine FieldCategory
+                let field: FieldCategory = "content";
+                if (key === "reasoning" || key === "thinking" || key === "reasoning_content") {
+                  field = "reasoning";
+                } else if (key === "arguments") {
+                  field = "toolArgs";
+                } else if (key === "partial_json") {
+                  field = "partialJson";
                 }
-                if (typeof delta.reasoning_content === "string") {
-                  delta.reasoning_content = processor(delta.reasoning_content, "reasoning", isStopSignal);
-                  matched = true;
-                } else if (typeof delta.reasoning === "string") {
-                  delta.reasoning = processor(delta.reasoning, "reasoning", isStopSignal);
-                  matched = true;
-                }
-                if (Array.isArray(delta.tool_calls)) {
-                  for (const tool of delta.tool_calls) {
-                    if (typeof tool?.function?.arguments === "string") {
-                      tool.function.arguments = processor(tool.function.arguments, "toolArgs", isStopSignal);
-                      matched = true;
-                    }
-                  }
-                }
+                obj[key] = processor(val, field, isStopSignal, idx);
+                matched = true;
+              } else if (typeof obj[key] === "object") {
+                sanitizeObject(obj[key], idx);
               }
             }
-          }
+          };
 
-          // Claude
-          else if (json.delta && typeof json.delta === "object") {
-            const delta = json.delta;
-            if (typeof delta.text === "string") {
-              delta.text = processor(delta.text, "content", isStopSignal);
-              matched = true;
-            }
-            if (typeof delta.thinking === "string") {
-              delta.thinking = processor(delta.thinking, "reasoning", isStopSignal);
-              matched = true;
-            }
-            if (typeof delta.partial_json === "string") {
-              delta.partial_json = processor(delta.partial_json, "partialJson", isStopSignal);
-              matched = true;
-            }
-          }
-
-          // Responses API
-          else if (typeof json.delta === "string") {
-            json.delta = processor(json.delta, "content", isStopSignal);
-            matched = true;
-          }
-          else if (typeof json.item?.arguments === "string") {
-            json.item.arguments = processor(json.item.arguments, "toolArgs", isStopSignal);
-            matched = true;
-          }
-
-          // Gemini
-          else if (Array.isArray(json.candidates)) {
-            for (const cand of json.candidates) {
-              if (cand?.content && Array.isArray(cand.content.parts)) {
-                for (const part of cand.content.parts) {
-                  if (part && typeof part.text === "string") {
-                    part.text = processor(part.text, "content", isStopSignal);
-                    matched = true;
-                  }
-                }
-              }
-            }
-          }
-
-          // Generic
-          else if (typeof json.content === "string") {
-            json.content = processor(json.content, "content", isStopSignal);
-            matched = true;
-          } else if (typeof json.text === "string") {
-            json.text = processor(json.text, "content", isStopSignal);
-            matched = true;
-          }
+          sanitizeObject(json, 0);
 
           if (!matched) {
-            const deepSanitizeKnownKeys = (obj: any) => {
-              if (!obj || typeof obj !== "object") return;
-              for (const key of Object.keys(obj)) {
-                if (typeof obj[key] === "string" && ["text", "content", "arguments", "reasoning"].includes(key)) {
-                  // Map the key to a valid FieldCategory. Default to "content".
-                  let field: "content" | "reasoning" | "toolArgs" | "partialJson" = "content";
-                  if (key === "reasoning") field = "reasoning";
-                  if (key === "arguments") field = "toolArgs";
-                  obj[key] = processor(obj[key], field, isStopSignal);
-                  matched = true;
-                } else if (typeof obj[key] === "object") {
-                  deepSanitizeKnownKeys(obj[key]);
-                }
-              }
-            };
-            deepSanitizeKnownKeys(json);
-            
-            if (!matched) {
-              console.warn("[SSE-TRANSFORM] Unrecognized SSE JSON format, passing through unprocessed. Keys:", Object.keys(json).slice(0, 5).join(", "));
-            }
+            console.warn("[SSE-TRANSFORM] No string fields sanitized in SSE JSON chunk. Keys:", Object.keys(json).slice(0, 5).join(", "));
           }
 
           if (isStopSignal && onFlush && !flushed) {

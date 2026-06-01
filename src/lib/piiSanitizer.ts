@@ -39,61 +39,67 @@ interface PIIPattern {
 const PII_PATTERNS: PIIPattern[] = [
   {
     name: "email",
-    regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?=$|[^A-Za-z0-9])/g,
     replacement: "[EMAIL_REDACTED]",
     severity: "medium",
   },
   {
     name: "ssn",
-    regex: /\b\d{3}-\d{2}-\d{4}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])\d{3}-\d{2}-\d{4}(?=$|[^A-Za-z0-9])/g,
     replacement: "[SSN_REDACTED]",
     severity: "high",
   },
   {
     name: "credit_card",
-    regex: /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])(?:\d{4}[-\s]?\d{6}[-\s]?\d{4,5}|(?:\d{4}[-\s]?){3}\d{4}|\d{4}[-\s]?\d{6}[-\s]?\d{4})(?=$|[^A-Za-z0-9])/g,
     replacement: "[CC_REDACTED]",
     severity: "high",
   },
   {
     name: "phone_us",
-    regex: /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?=$|[^A-Za-z0-9])/g,
     replacement: "[PHONE_REDACTED]",
     severity: "medium",
   },
   {
     name: "phone_br",
-    regex: /\b(?:\+?55[-.\s]?)?\(?\d{2}\)?[-.\s]?\d{4,5}[-.\s]?\d{4}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])(?:\+?55[-.\s]?)?\(?\d{2}\)?[-.\s]?\d{4,5}[-.\s]?\d{4}(?=$|[^A-Za-z0-9])/g,
     replacement: "[PHONE_REDACTED]",
     severity: "medium",
   },
   {
     name: "cpf",
-    regex: /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?=$|[^A-Za-z0-9])/g,
     replacement: "[CPF_REDACTED]",
     severity: "high",
   },
   {
     name: "cnpj",
-    regex: /\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}(?=$|[^A-Za-z0-9])/g,
     replacement: "[CNPJ_REDACTED]",
     severity: "high",
   },
   {
     name: "ip_address",
-    regex: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])(?:\d{1,3}\.){3}\d{1,3}(?=$|[^A-Za-z0-9])/g,
+    replacement: "[IP_REDACTED]",
+    severity: "low",
+  },
+  {
+    name: "ipv6_address",
+    regex: /(?<=^|[^A-Za-z0-9])(?:[0-9a-fA-F]{1,4}:){1,7}(?:[0-9a-fA-F]{1,4}|:)|::(?:[0-9a-fA-F]{1,4}:){0,7}[0-9a-fA-F]{1,4}(?=$|[^A-Za-z0-9])/g,
     replacement: "[IP_REDACTED]",
     severity: "low",
   },
   {
     name: "aws_key",
-    regex: /\bAKIA[0-9A-Z]{16}\b/g,
+    regex: /(?<=^|[^A-Za-z0-9])AKIA[0-9A-Z]{16}(?=$|[^A-Za-z0-9])/g,
     replacement: "[AWS_KEY_REDACTED]",
     severity: "high",
   },
   {
     name: "api_key_generic",
-    regex: /\b(?:sk|pk|api|key|token)[_-][a-zA-Z0-9]{20,}\b/gi,
+    regex: /(?<=^|[^A-Za-z0-9])(?:sk|pk|api|key|token)[_-][a-zA-Z0-9]{20,}(?=$|[^A-Za-z0-9])/gi,
     replacement: "[API_KEY_REDACTED]",
     severity: "high",
   },
@@ -109,6 +115,7 @@ export interface SanitizeResult {
     severity: string;
   }>;
   redacted: boolean;
+  endMatchIndex?: number;
 }
 
 /**
@@ -121,12 +128,16 @@ export function sanitizePII(text: string, isStreaming = false): SanitizeResult {
 
   const mode = getMode();
   const detections: SanitizeResult["detections"] = [];
-  let sanitized = text;
+
+  // Strip zero-width spaces and other invisible characters to prevent regex obfuscation bypasses
+  let sanitized = text.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  const cleanText = sanitized;
+  let endMatchIndex: number | undefined = undefined;
 
   for (const pattern of PII_PATTERNS) {
     // Reset lastIndex for global regexes
     pattern.regex.lastIndex = 0;
-    const matches = text.match(pattern.regex);
+    const matches = cleanText.match(pattern.regex);
     if (matches && matches.length > 0) {
       detections.push({
         pattern: pattern.name,
@@ -136,9 +147,13 @@ export function sanitizePII(text: string, isStreaming = false): SanitizeResult {
 
       if (mode === "redact") {
         pattern.regex.lastIndex = 0;
+        const currentLength = sanitized.length;
         sanitized = sanitized.replace(pattern.regex, (match, offset) => {
-          if (isStreaming && offset + match.length === text.length) {
+          if (isStreaming && offset + match.length === currentLength) {
             // Prevent premature redaction of variable-length PII touching the end of the streaming buffer
+            if (endMatchIndex === undefined || offset < endMatchIndex) {
+              endMatchIndex = offset;
+            }
             return match;
           }
           return pattern.replacement;
@@ -161,6 +176,7 @@ export function sanitizePII(text: string, isStreaming = false): SanitizeResult {
     text: mode === "redact" ? sanitized : text,
     detections,
     redacted: mode === "redact" && detections.length > 0,
+    endMatchIndex,
   };
 }
 
@@ -181,41 +197,29 @@ export function sanitizePIIResponse(response: any): any {
   if (!isEnabled() || !response) return response;
 
   try {
-    const choices = response.choices || [];
-    for (const choice of choices) {
-      if (choice.message?.content) {
-        const result = sanitizePII(choice.message.content);
-        choice.message.content = result.text;
+    // Deep sanitize the entire response object recursively
+    const deepSanitize = (obj: any): any => {
+      if (!obj) return obj;
+      if (typeof obj === "string") {
+        return sanitizePII(obj).text;
       }
-      if (choice.delta?.content) {
-        const result = sanitizePII(choice.delta.content);
-        choice.delta.content = result.text;
-      }
-    }
-
-    // Claude format
-    if (Array.isArray(response.content)) {
-      for (const block of response.content) {
-        if (block && typeof block.text === "string") {
-          const result = sanitizePII(block.text);
-          block.text = result.text;
+      if (Array.isArray(obj)) {
+        for (let i = 0; i < obj.length; i++) {
+          obj[i] = deepSanitize(obj[i]);
         }
-      }
-    }
-
-    // Gemini format
-    if (Array.isArray(response.candidates)) {
-      for (const cand of response.candidates) {
-        if (cand?.content && Array.isArray(cand.content.parts)) {
-          for (const part of cand.content.parts) {
-            if (part && typeof part.text === "string") {
-              const result = sanitizePII(part.text);
-              part.text = result.text;
-            }
+      } else if (typeof obj === "object") {
+        for (const key of Object.keys(obj)) {
+          // Skip known non-PII system metadata keys to optimize performance
+          if (["id", "model", "object", "created", "finish_reason", "finishReason", "role", "type", "index", "stop_reason"].includes(key)) {
+            continue;
           }
+          obj[key] = deepSanitize(obj[key]);
         }
       }
-    }
+      return obj;
+    };
+
+    return deepSanitize(response);
   } catch (err: any) {
     if (err?.message?.startsWith("[PII] Blocked response")) {
       throw err;

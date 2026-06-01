@@ -207,7 +207,7 @@ test("Responses API string delta is processed", async () => {
   assert.ok(received.includes("hello responses"));
 });
 
-test("format checks are mutually exclusive (no double processing)", async () => {
+test("recursive scanning sanitizes multiple nested format fields (no format bypass)", async () => {
   let callCount = 0;
   const transform = createSseTextTransform((text) => {
     callCount++;
@@ -219,7 +219,7 @@ test("format checks are mutually exclusive (no double processing)", async () => 
     `data: {"choices":[{"delta":{"content":"hi"}}],"content":"generic"}\n\n`
   ]);
 
-  // Should match OpenAI first, skip Generic due to else-if
-  assert.equal(callCount, 1, "processor should be called exactly once per chunk");
+  // Should sanitize both fields recursively to prevent format-based bypasses
+  assert.equal(callCount, 2, "processor should be called for each string property recursively");
 });
 
