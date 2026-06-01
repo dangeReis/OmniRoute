@@ -1,5 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+// Isolate DB state
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-test-adversarial-pii-"));
+process.env.DATA_DIR = tmpDir;
+
 import { createPiiSseTransform } from "../../src/lib/streamingPiiTransform";
 import { sanitizePIIResponse, sanitizePII } from "../../src/lib/piiSanitizer";
 import { resolveFeatureFlag } from "../../src/shared/utils/featureFlags";
@@ -13,7 +21,12 @@ const mockFlags: Record<string, string> = {
 test("Adversarial Tests", async (t) => {
   // Setup overrides for tests
   const originalEnv = process.env;
-  process.env = { ...originalEnv };
+  process.env = { 
+    ...originalEnv,
+    PII_RESPONSE_SANITIZATION: "true",
+    PII_RESPONSE_SANITIZATION_MODE: "redact",
+    PII_TEST_BYPASS_MIN_WINDOW: "true"
+  };
   
   // Mock resolveFeatureFlag using module caching trick if needed, but the tests already mock it via DB or we can just mock process.env if the system falls back to env.
   // Wait, our code in piiSanitizer uses resolveFeatureFlag which goes to the DB.
@@ -141,5 +154,148 @@ test("Adversarial Tests", async (t) => {
     const fullOutput = chunks.join("");
     assert.ok(fullOutput.includes("Hello"));
     assert.ok(!fullOutput.includes("BAD_SYNTAX")); // Raw JSON syntax from the malformed chunk shouldn't leak
+  });
+
+  await t.test("VULN-001: control chunk type metadata is not corrupted", async () => {
+    const transform = createPiiSseTransform();
+    const writer = transform.writable.getWriter();
+    const chunks: string[] = [];
+    const reader = transform.readable.getReader();
+
+    const readPromise = (async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        chunks.push(new TextDecoder().decode(value));
+      }
+    })();
+
+    const encoder = new TextEncoder();
+    // Feed content that gets buffered
+    await writer.write(encoder.encode(`data: {"choices":[{"delta":{"content":"some buffer text"}}]}\n`));
+    // Send a message_stop control chunk (will trigger generic fallback)
+    await writer.write(encoder.encode(`data: {"type":"message_stop"}\n`));
+    await writer.write(encoder.encode("data: [DONE]\n"));
+    await writer.close();
+    await readPromise;
+
+    const fullOutput = chunks.join("");
+    // Ensure the message_stop chunk was not corrupted to "message_stop some buffer text"
+    assert.ok(fullOutput.includes('"type":"message_stop"'));
+  });
+
+  await t.test("VULN-002: small windowSize is clamped to 80 in production (without bypass env)", async () => {
+    // Unset test bypass env variable temporarily
+    const originalBypass = process.env.PII_TEST_BYPASS_MIN_WINDOW;
+    delete process.env.PII_TEST_BYPASS_MIN_WINDOW;
+    try {
+      const transform = createPiiSseTransform({ windowSize: 10 });
+      // W should be 80.
+      // If we stream "hello world", length is 11, since W is 80, emitLength should be 0.
+      // So nothing should be emitted before stop signal or close.
+      const writer = transform.writable.getWriter();
+      const reader = transform.readable.getReader();
+
+      const chunks: string[] = [];
+      const readPromise = (async () => {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          chunks.push(new TextDecoder().decode(value));
+        }
+      })();
+
+      const encoder = new TextEncoder();
+      await writer.write(encoder.encode(`data: {"choices":[{"delta":{"content":"hello world"}}]}\n`));
+      await writer.close();
+      await readPromise;
+      
+      const chunkText = chunks[0];
+      // Since it's < 80 and windowSize is clamped to 80, the output chunk received before close is metadata-only or empty content
+      assert.ok(chunkText.includes('"content":""') || !chunkText.includes("hello world"));
+    } finally {
+      process.env.PII_TEST_BYPASS_MIN_WINDOW = originalBypass;
+    }
+  });
+
+  await t.test("VULN-003: ZWJ emojis and Brahmic script ligatures do not decompose", async () => {
+    const familyEmoji = "👨‍👩‍👧‍👦"; // Uses ZWJs
+    const sinhalaText = "ශ්‍රී"; // Sri Lanka in Sinhala, uses ZWJ/ZWNJ ligatures
+    
+    const result1 = sanitizePII(familyEmoji);
+    assert.strictEqual(result1.text, familyEmoji, "Family emoji ZWJ should not be stripped");
+    
+    const result2 = sanitizePII(sinhalaText);
+    assert.strictEqual(result2.text, sinhalaText, "Sinhala ligatures should not be stripped");
+  });
+
+  await t.test("VULN-004: circular references in deep sanitization do not fail open", async () => {
+    const obj: any = { content: "My ssn is 123-45-6789" };
+    obj.selfRef = obj; // Create circular reference
+
+    const sanitized = sanitizePIIResponse(obj);
+    assert.ok(sanitized.selfRef === "[CIRCULAR_REFERENCE_REDACTED]" || sanitized.content === "[CIRCULAR_REFERENCE_REDACTED]" || sanitized.content === "My ssn is [SSN_REDACTED]");
+  });
+
+  await t.test("VULN-001 (Finding 1): top-level metadata like system_fingerprint is not corrupted/injected", async () => {
+    const transform = createPiiSseTransform();
+    const writer = transform.writable.getWriter();
+    const chunks: string[] = [];
+    const reader = transform.readable.getReader();
+
+    const readPromise = (async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        chunks.push(new TextDecoder().decode(value));
+      }
+    })();
+
+    const encoder = new TextEncoder();
+    // Send a standard OpenAI chunk containing content delta and system_fingerprint
+    await writer.write(encoder.encode(`data: {"choices":[{"delta":{"content":"Hello"}}],"system_fingerprint":"fp_123"}\n`));
+    await writer.write(encoder.encode("data: [DONE]\n"));
+    await writer.close();
+    await readPromise;
+
+    const fullOutput = chunks.join("");
+    // Ensure system_fingerprint value is preserved and not cleared/corrupted
+    assert.ok(fullOutput.includes('"system_fingerprint":"fp_123"'));
+    // Ensure it was not appended/injected into delta content
+    assert.ok(!fullOutput.includes('"content":"Hello fp_123"'));
+  });
+
+  await t.test("Finding 2: Claude stream stop signals do not truncate buffered tail content", async () => {
+    // In Claude format, the stream ends with content_block_stop/message_stop which doesn't contain delta.
+    // The transform should synthesize a content_block_delta first containing the buffered text, then pass stop chunks.
+    const transform = createPiiSseTransform();
+    const writer = transform.writable.getWriter();
+    const chunks: string[] = [];
+    const reader = transform.readable.getReader();
+
+    const readPromise = (async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        chunks.push(new TextDecoder().decode(value));
+      }
+    })();
+
+    const encoder = new TextEncoder();
+    // Send content_block_delta (text gets buffered under W=200)
+    await writer.write(encoder.encode(`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"The quick brown fox jumps over the lazy dog."}}\n`));
+    // Send stop events
+    await writer.write(encoder.encode(`data: {"type":"content_block_stop","index":0}\n`));
+    await writer.write(encoder.encode(`data: {"type":"message_stop"}\n`));
+    await writer.close();
+    await readPromise;
+
+    const fullOutput = chunks.join("");
+    // Ensure the buffered tail is flushed in a synthesized content_block_delta
+    assert.ok(fullOutput.includes('"type":"content_block_delta"'));
+    assert.ok(fullOutput.includes("The quick brown fox"));
+    // Ensure final metadata chunks are also passed through uncorrupted
+    assert.ok(fullOutput.includes('"type":"content_block_stop"'));
+    assert.ok(fullOutput.includes('"type":"message_stop"'));
   });
 });

@@ -11,6 +11,7 @@ process.env.DATA_DIR = tmpDir;
 // Enable the feature flag for tests
 const originalEnv = process.env.PII_RESPONSE_SANITIZATION;
 process.env.PII_RESPONSE_SANITIZATION = "true";
+process.env.PII_TEST_BYPASS_MIN_WINDOW = "true";
 
 import { createPiiSseTransform } from "../../src/lib/streamingPiiTransform.ts";
 

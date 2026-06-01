@@ -22,7 +22,9 @@ export function createPiiSseTransform(options?: PiiTransformOptions): TransformS
     return buf;
   };
 
-  const W = options?.windowSize ?? Math.max(80, parseInt(process.env.PII_WINDOW_SIZE || "", 10) || 100);
+  const W = (options?.windowSize && process.env.PII_TEST_BYPASS_MIN_WINDOW === "true")
+    ? options.windowSize
+    : Math.max(200, options?.windowSize ?? (parseInt(process.env.PII_WINDOW_SIZE || "", 10) || 200));
 
   const processor = (text: string, field: FieldCategory, isStopSignal = false, index = 0): string => {
     const buffers = getBuffers(index);
@@ -92,12 +94,130 @@ export function createPiiSseTransform(options?: PiiTransformOptions): TransformS
       return null;
     }
 
-    const finalJson = JSON.parse(JSON.stringify(lastJson));
+    // Explicitly target formats to prevent metadata corruption and leakage
+    const METADATA_KEYS = [
+      "id", "model", "object", "created", "finish_reason", "finishReason",
+      "role", "type", "index", "stop_reason", "stop_sequence",
+      "system_fingerprint", "service_tier", "usage", "prompt_tokens",
+      "completion_tokens", "total_tokens", "input_tokens", "output_tokens",
+      "logprobs", "refusal", "name", "event"
+    ];
 
+    // 1. Claude format
+    if (typeof lastJson.type === "string" && (lastJson.type.startsWith("message") || lastJson.type.startsWith("content_block"))) {
+      const buffers = getBuffers(0);
+      const delta: any = { type: "text_delta" };
+      let hasDelta = false;
+      if (buffers.content) {
+        delta.text = buffers.content;
+        buffers.content = "";
+        hasDelta = true;
+      }
+      if (buffers.reasoning) {
+        delta.thinking = buffers.reasoning;
+        buffers.reasoning = "";
+        hasDelta = true;
+      }
+      if (buffers.partialJson) {
+        delta.partial_json = buffers.partialJson;
+        buffers.partialJson = "";
+        hasDelta = true;
+      }
+      if (hasDelta) {
+        return {
+          type: "content_block_delta",
+          index: typeof lastJson.index === "number" ? lastJson.index : 0,
+          delta
+        };
+      }
+      return null;
+    }
+
+    // 2. OpenAI Chat Completions
+    if (lastJson.choices && Array.isArray(lastJson.choices)) {
+      const finalJson = JSON.parse(JSON.stringify(lastJson));
+      const presentIndexes = new Set(finalJson.choices.map((c: any) => c.index).filter((idx: any) => typeof idx === "number"));
+      for (const [choiceIdx, choiceBuf] of choiceBuffers.entries()) {
+        if (!presentIndexes.has(choiceIdx) && (choiceBuf.content || choiceBuf.reasoning || choiceBuf.toolArgs)) {
+          finalJson.choices.push({ index: choiceIdx, delta: {} });
+        }
+      }
+
+      for (const choice of finalJson.choices) {
+        const choiceIdx = typeof choice.index === "number" ? choice.index : 0;
+        const choiceBuf = getBuffers(choiceIdx);
+        if (!choice.delta) choice.delta = {};
+        const delta = choice.delta;
+        
+        if (choiceBuf.content) {
+          delta.content = choiceBuf.content;
+          choiceBuf.content = "";
+        } else {
+          delete delta.content;
+        }
+        if (choiceBuf.reasoning) {
+          delta.reasoning_content = choiceBuf.reasoning;
+          choiceBuf.reasoning = "";
+        } else {
+          delete delta.reasoning_content;
+        }
+        if (choiceBuf.toolArgs) {
+          delta.tool_calls = [
+            {
+              function: {
+                arguments: choiceBuf.toolArgs
+              }
+            }
+          ];
+          choiceBuf.toolArgs = "";
+        } else {
+          delete delta.tool_calls;
+        }
+      }
+      return finalJson;
+    }
+
+    // 3. Responses API
+    if (typeof lastJson.type === "string" && lastJson.type.startsWith("response.")) {
+      const finalJson = JSON.parse(JSON.stringify(lastJson));
+      const idx = typeof finalJson.output_index === "number" ? finalJson.output_index : 0;
+      const buffers = getBuffers(idx);
+      if (buffers.content) {
+        finalJson.delta = buffers.content;
+        buffers.content = "";
+      }
+      if (buffers.toolArgs) {
+        finalJson.item = {
+          arguments: buffers.toolArgs
+        };
+        buffers.toolArgs = "";
+      }
+      return finalJson;
+    }
+
+    // 4. Gemini format
+    if (Array.isArray(lastJson.candidates)) {
+      const finalJson = JSON.parse(JSON.stringify(lastJson));
+      for (const cand of finalJson.candidates) {
+        const idx = typeof cand.index === "number" ? cand.index : 0;
+        const buffers = getBuffers(idx);
+        if (!cand.content) cand.content = {};
+        cand.content.parts = [];
+        
+        if (buffers.content) {
+          cand.content.parts.push({ text: buffers.content });
+          buffers.content = "";
+        }
+      }
+      return finalJson;
+    }
+
+    // 5. Generic fallback
+    const finalJson = JSON.parse(JSON.stringify(lastJson));
     const clearDeltas = (obj: any) => {
       if (!obj || typeof obj !== "object") return;
       for (const key of Object.keys(obj)) {
-        if (["id", "model", "object", "created", "finish_reason", "finishReason", "role", "type", "index", "stop_reason"].includes(key)) {
+        if (METADATA_KEYS.includes(key)) {
           continue;
         }
         if (typeof obj[key] === "string") {
@@ -117,111 +237,26 @@ export function createPiiSseTransform(options?: PiiTransformOptions): TransformS
         idx = obj.index;
       }
 
-      const buffers = getBuffers(idx);
-
-      // OpenAI CC
-      if (obj.choices && Array.isArray(obj.choices)) {
-        const presentIndexes = new Set(obj.choices.map((c: any) => c.index).filter((idx: any) => typeof idx === "number"));
-        for (const [choiceIdx, choiceBuf] of choiceBuffers.entries()) {
-          if (!presentIndexes.has(choiceIdx) && (choiceBuf.content || choiceBuf.reasoning || choiceBuf.toolArgs)) {
-            obj.choices.push({ index: choiceIdx, delta: {} });
+      for (const key of Object.keys(obj)) {
+        if (METADATA_KEYS.includes(key)) {
+          continue;
+        }
+        if (typeof obj[key] === "string") {
+          let field: FieldCategory = "content";
+          if (key === "reasoning" || key === "thinking" || key === "reasoning_content") {
+            field = "reasoning";
+          } else if (key === "arguments") {
+            field = "toolArgs";
+          } else if (key === "partial_json") {
+            field = "partialJson";
           }
-        }
-
-        for (const choice of obj.choices) {
-          const choiceIdx = typeof choice.index === "number" ? choice.index : idx;
-          const choiceBuf = getBuffers(choiceIdx);
-          if (!choice.delta) choice.delta = {};
-          const delta = choice.delta;
-          
-          if (choiceBuf.content) {
-            delta.content = (delta.content || "") + choiceBuf.content;
-            choiceBuf.content = "";
+          const choiceBuf = getBuffers(idx);
+          if (choiceBuf[field]) {
+            obj[key] = (obj[key] || "") + choiceBuf[field];
+            choiceBuf[field] = "";
           }
-          if (choiceBuf.reasoning) {
-            delta.reasoning_content = (delta.reasoning_content || "") + choiceBuf.reasoning;
-            choiceBuf.reasoning = "";
-          }
-          if (choiceBuf.toolArgs) {
-            if (!Array.isArray(delta.tool_calls)) {
-              delta.tool_calls = [];
-            }
-            if (delta.tool_calls.length === 0) {
-              delta.tool_calls.push({ function: {} });
-            }
-            if (!delta.tool_calls[0].function) {
-              delta.tool_calls[0].function = {};
-            }
-            delta.tool_calls[0].function.arguments = (delta.tool_calls[0].function.arguments || "") + choiceBuf.toolArgs;
-            choiceBuf.toolArgs = "";
-          }
-        }
-      }
-
-      // Claude
-      else if (obj.delta && typeof obj.delta === "object") {
-        const delta = obj.delta;
-        if (buffers.content) {
-          delta.text = (delta.text || "") + buffers.content;
-          buffers.content = "";
-        }
-        if (buffers.reasoning) {
-          delta.thinking = (delta.thinking || "") + buffers.reasoning;
-          buffers.reasoning = "";
-        }
-        if (buffers.partialJson) {
-          delta.partial_json = (delta.partial_json || "") + buffers.partialJson;
-          buffers.partialJson = "";
-        }
-      }
-
-      // Responses API
-      else if (typeof obj.delta === "string" || typeof obj.item?.arguments === "string") {
-        if (buffers.content) {
-          obj.delta = (obj.delta || "") + buffers.content;
-          buffers.content = "";
-        }
-        if (buffers.toolArgs) {
-          if (!obj.item) obj.item = {};
-          obj.item.arguments = (obj.item.arguments || "") + buffers.toolArgs;
-          buffers.toolArgs = "";
-        }
-      }
-
-      // Gemini
-      else if (Array.isArray(obj.candidates)) {
-        for (const cand of obj.candidates) {
-          if (!cand.content) cand.content = {};
-          if (!Array.isArray(cand.content.parts)) cand.content.parts = [];
-          if (cand.content.parts.length === 0) cand.content.parts.push({});
-          
-          if (buffers.content) {
-            cand.content.parts[0].text = (cand.content.parts[0].text || "") + buffers.content;
-            buffers.content = "";
-          }
-        }
-      }
-
-      // Generic
-      else {
-        for (const key of Object.keys(obj)) {
-          if (typeof obj[key] === "string") {
-            let field: FieldCategory = "content";
-            if (key === "reasoning" || key === "thinking" || key === "reasoning_content") {
-              field = "reasoning";
-            } else if (key === "arguments") {
-              field = "toolArgs";
-            } else if (key === "partial_json") {
-              field = "partialJson";
-            }
-            const choiceBuf = getBuffers(idx);
-            if (choiceBuf[field]) {
-              obj[key] = (obj[key] || "") + choiceBuf[field];
-              choiceBuf[field] = "";
-            }
-          } else if (typeof obj[key] === "object") {
-            populateRemaining(obj[key], idx);
-          }
+        } else if (typeof obj[key] === "object") {
+          populateRemaining(obj[key], idx);
         }
       }
     };

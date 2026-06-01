@@ -54,6 +54,14 @@ export function createSseTextTransform(
             (json.type === "message_delta" && json.delta?.stop_reason) ||
             ["response.done", "response.completed", "response.cancelled", "response.failed"].includes(json.type);
 
+          const METADATA_KEYS = [
+            "id", "model", "object", "created", "finish_reason", "finishReason",
+            "role", "type", "index", "stop_reason", "stop_sequence",
+            "system_fingerprint", "service_tier", "usage", "prompt_tokens",
+            "completion_tokens", "total_tokens", "input_tokens", "output_tokens",
+            "logprobs", "refusal", "name", "event"
+          ];
+
           // Recursively sanitize all string properties (except system metadata)
           const sanitizeObject = (obj: any, currentIndex = 0) => {
             if (!obj || typeof obj !== "object") return;
@@ -64,7 +72,7 @@ export function createSseTextTransform(
             }
 
             for (const key of Object.keys(obj)) {
-              if (["id", "model", "object", "created", "finish_reason", "finishReason", "role", "type", "index", "stop_reason"].includes(key)) {
+              if (METADATA_KEYS.includes(key)) {
                 continue;
               }
               if (typeof obj[key] === "string") {
