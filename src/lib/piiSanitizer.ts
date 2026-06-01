@@ -230,7 +230,13 @@ export function sanitizePII(text: string, isStreaming = false): SanitizeResult {
         `[PII] Detected PII in response: ${detections.map((d) => `${d.pattern}(${d.count})`).join(", ")}`
       );
     } else if (mode === "block") {
-      throw new Error(`[PII] Blocked response due to PII detection: ${detections.map((d) => d.pattern).join(", ")}`);
+      // Log the matched pattern types server-side, but never put them in the
+      // thrown message — it can surface to the client via controller.error
+      // (Hard Rule #12: no internal detail in response/stream errors).
+      console.warn(
+        `[PII] Blocked response due to PII detection: ${detections.map((d) => d.pattern).join(", ")}`
+      );
+      throw new Error("[PII] Blocked response due to PII detection");
     }
   }
 
@@ -329,7 +335,10 @@ export function sanitizePIIResponse(response: any): any {
       const { text: sanitized } = sanitizePII(serialized);
       return JSON.parse(sanitized);
     } catch (fallbackErr) {
-      throw new Error(`[PII] Blocked response due to sanitization failure: ${err.message}`);
+      // Suppress err.message — never surface upstream error detail to the client
+      // (Hard Rule #12). The underlying error is available in server logs.
+      console.warn("[PII] Sanitization fallback failed:", err?.message);
+      throw new Error("[PII] Blocked response due to sanitization failure");
     }
   }
 }
