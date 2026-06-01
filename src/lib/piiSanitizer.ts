@@ -51,7 +51,7 @@ const PII_PATTERNS: PIIPattern[] = [
   },
   {
     name: "credit_card",
-    regex: /(?<=^|[^A-Za-z0-9])(?:\d{4}[-\s]?\d{6}[-\s]?\d{4,5}|(?:\d{4}[-\s]?){3}\d{4}|\d{4}[-\s]?\d{6}[-\s]?\d{4})(?=$|[^A-Za-z0-9])/g,
+    regex: /(?<=^|[^A-Za-z0-9])(?:\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}|\d{4}[-\s]?\d{6}[-\s]?\d{4,5})(?=$|[^A-Za-z0-9])/g,
     replacement: "[CC_REDACTED]",
     severity: "high",
   },
@@ -87,7 +87,7 @@ const PII_PATTERNS: PIIPattern[] = [
   },
   {
     name: "ipv6_address",
-    regex: /(?<=^|[^A-Za-z0-9])(?:(?:[0-9a-fA-F]{1,4}:){1,7}(?:[0-9a-fA-F]{1,4}|:)|::(?:[0-9a-fA-F]{1,4}:){0,7}[0-9a-fA-F]{1,4})(?=$|[^A-Za-z0-9])/g,
+    regex: /(?<=^|[^A-Za-z0-9])(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}(?=$|[^A-Za-z0-9])/g,
     replacement: "[IP_REDACTED]",
     severity: "low",
   },
