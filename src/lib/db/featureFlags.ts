@@ -8,13 +8,16 @@
 
 import { FEATURE_FLAG_DEFINITIONS } from "@/shared/constants/featureFlagDefinitions";
 import { getDbInstance } from "./core";
+import { registerDbStateResetter } from "./stateReset";
 
 const NAMESPACE = "feature_flags";
 
-/**
- * Returns all feature flag overrides as a key→value map.
- */
-export function getFeatureFlagOverrides(): Record<string, string> {
+let overridesCache: Record<string, string> | null = null;
+
+function ensureCacheLoaded(): Record<string, string> {
+  if (overridesCache !== null) {
+    return overridesCache;
+  }
   const db = getDbInstance();
   const rows = db
     .prepare("SELECT key, value FROM key_value WHERE namespace = ?")
@@ -24,7 +27,24 @@ export function getFeatureFlagOverrides(): Record<string, string> {
   for (const row of rows) {
     result[row.key] = row.value;
   }
+  overridesCache = result;
   return result;
+}
+
+/**
+ * Reset the feature flag cache.
+ */
+export function resetFeatureFlagsState(): void {
+  overridesCache = null;
+}
+
+registerDbStateResetter(resetFeatureFlagsState);
+
+/**
+ * Returns all feature flag overrides as a key→value map.
+ */
+export function getFeatureFlagOverrides(): Record<string, string> {
+  return { ...ensureCacheLoaded() };
 }
 
 /**
@@ -32,11 +52,7 @@ export function getFeatureFlagOverrides(): Record<string, string> {
  * is stored.
  */
 export function getFeatureFlagOverride(key: string): string | undefined {
-  const db = getDbInstance();
-  const row = db
-    .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
-    .get(NAMESPACE, key) as { value: string } | undefined;
-  return row?.value;
+  return ensureCacheLoaded()[key];
 }
 
 /**
@@ -62,6 +78,9 @@ export function setFeatureFlagOverride(key: string, value: string): void {
     key,
     value
   );
+  if (overridesCache) {
+    overridesCache[key] = value;
+  }
 }
 
 /**
@@ -71,6 +90,9 @@ export function setFeatureFlagOverride(key: string, value: string): void {
 export function removeFeatureFlagOverride(key: string): void {
   const db = getDbInstance();
   db.prepare("DELETE FROM key_value WHERE namespace = ? AND key = ?").run(NAMESPACE, key);
+  if (overridesCache) {
+    delete overridesCache[key];
+  }
 }
 
 /**
@@ -79,4 +101,7 @@ export function removeFeatureFlagOverride(key: string): void {
 export function clearAllFeatureFlagOverrides(): void {
   const db = getDbInstance();
   db.prepare("DELETE FROM key_value WHERE namespace = ?").run(NAMESPACE);
+  overridesCache = {};
 }
+
+
