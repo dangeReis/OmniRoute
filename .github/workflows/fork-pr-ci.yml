@@ -1,0 +1,94 @@
+name: Fork PR Checks
+
+on:
+  pull_request:
+    branches: ["*"]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write  # Required for CodeQL uploads
+
+jobs:
+  check:
+    name: Lint, Typecheck, and Tests
+    if: github.repository == 'dangeReis/OmniRoute'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck:core
+
+      - name: Run targeted PII tests
+        run: node --import tsx/esm --test tests/unit/piiReproduction.test.ts tests/unit/streamingPiiTransform.test.ts
+
+  security:
+    name: Security Scans (Audit & CodeQL)
+    if: github.repository == 'dangeReis/OmniRoute'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit Dependencies
+        run: npm run audit:deps
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  ai_review:
+    name: Automated AI Code Review
+    if: github.repository == 'dangeReis/OmniRoute'
+    runs-on: ubuntu-latest
+    needs: [check, security]
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Fetch all history so git diff works correctly
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Run AI Code Review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/ad-hoc/ai-pr-review.mjs
