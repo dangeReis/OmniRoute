@@ -363,7 +363,7 @@ test("two consecutive events with different names each get their own event name 
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;
-
+  } else {
     delete process.env.PII_RESPONSE_SANITIZATION;
   }
 

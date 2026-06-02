@@ -197,10 +197,6 @@ test("IPv6 address inside SSE JSON content is redacted end-to-end", async () => 
 });
 
 test.after(() => {
-  try {
-    resetDbInstance();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  } catch (err) {
-    console.error("Cleanup failed:", err);
-  }
+  resetDbInstance();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
