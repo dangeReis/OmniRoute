@@ -23,6 +23,7 @@ env:
 jobs:
   lint:
     name: Lint
+    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -47,6 +48,7 @@ jobs:
 
   docs-sync-strict:
     name: Docs Sync (Strict)
+    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -61,6 +63,7 @@ jobs:
 
   i18n-ui-coverage:
     name: i18n UI Coverage
+    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -73,6 +76,7 @@ jobs:
 
   i18n-matrix:
     name: Build language matrix
+    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     outputs:
       langs: ${{ steps.langs.outputs.langs }}
@@ -112,7 +116,7 @@ jobs:
 
   pr-test-policy:
     name: PR Test Policy
-    if: ${{ github.event_name == 'pull_request' }}
+    if: github.repository == 'diegosouzapw/OmniRoute' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -134,6 +138,7 @@ jobs:
 
   build:
     name: Build
+    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -557,7 +562,7 @@ jobs:
   ci-summary:
     name: CI Dashboard
     runs-on: ubuntu-latest
-    if: always()
+    if: github.repository == 'diegosouzapw/OmniRoute' && always()
     needs:
       - lint
       - docs-sync-strict
