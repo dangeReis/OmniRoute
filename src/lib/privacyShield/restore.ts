@@ -4,11 +4,21 @@ import type { PatternRule, ExcludeRule } from "./patterns.ts";
 import { getPlaceholderRegex } from "./session.ts";
 import { redactText } from "./engine.ts";
 
+const regexCache = new Map<string, RegExp>();
+
+function getGlobalPlaceholderRegex(prefix: string = "__PS_"): RegExp {
+  let cached = regexCache.get(prefix);
+  if (!cached) {
+    cached = new RegExp(getPlaceholderRegex(prefix).source, "g");
+    regexCache.set(prefix, cached);
+  }
+  return cached;
+}
+
 export function restoreText(text: string, session: PlaceholderSession): string {
   if (typeof text !== "string" || !text) return text;
   
-  const baseRegex = getPlaceholderRegex();
-  const globalRegex = new RegExp(baseRegex.source, "g");
+  const globalRegex = getGlobalPlaceholderRegex();
   
   return text.replace(globalRegex, (match) => {
     let resolved = session.resolve(match);
@@ -43,6 +53,27 @@ export function restoreDeep(obj: unknown, session: PlaceholderSession): void {
           current[i] = restoreText(val, session);
         } else if (val && typeof val === "object") {
           recurse(val);
+        }
+      }
+    } else if (current instanceof Map) {
+      for (const [key, val] of current.entries()) {
+        if (typeof val === "string") {
+          current.set(key, restoreText(val, session));
+        } else if (val && typeof val === "object") {
+          recurse(val);
+        }
+      }
+    } else if (current instanceof Set) {
+      const arr = Array.from(current);
+      current.clear();
+      for (const val of arr) {
+        if (typeof val === "string") {
+          current.add(restoreText(val, session));
+        } else if (val && typeof val === "object") {
+          recurse(val);
+          current.add(val);
+        } else {
+          current.add(val);
         }
       }
     } else {
@@ -80,6 +111,27 @@ export function redactDeep(
           current[i] = redactText(val, patterns, excludes, session).text;
         } else if (val && typeof val === "object") {
           recurse(val);
+        }
+      }
+    } else if (current instanceof Map) {
+      for (const [key, val] of current.entries()) {
+        if (typeof val === "string") {
+          current.set(key, redactText(val, patterns, excludes, session).text);
+        } else if (val && typeof val === "object") {
+          recurse(val);
+        }
+      }
+    } else if (current instanceof Set) {
+      const arr = Array.from(current);
+      current.clear();
+      for (const val of arr) {
+        if (typeof val === "string") {
+          current.add(redactText(val, patterns, excludes, session).text);
+        } else if (val && typeof val === "object") {
+          recurse(val);
+          current.add(val);
+        } else {
+          current.add(val);
         }
       }
     } else {
