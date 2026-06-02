@@ -8,19 +8,19 @@ import path from "node:path";
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-test-repro-"));
 process.env.DATA_DIR = tmpDir;
 
+// Setup overrides for tests
+const originalSanitization = process.env.PII_RESPONSE_SANITIZATION;
+const originalMode = process.env.PII_RESPONSE_SANITIZATION_MODE;
+const originalBypass = process.env.PII_TEST_BYPASS_MIN_WINDOW;
+
+process.env.PII_RESPONSE_SANITIZATION = "true";
+process.env.PII_RESPONSE_SANITIZATION_MODE = "redact";
+process.env.PII_TEST_BYPASS_MIN_WINDOW = "true";
+
 import { createPiiSseTransform } from "../../src/lib/streamingPiiTransform";
 import { sanitizePII } from "../../src/lib/piiSanitizer";
 
 test("PII Reproduction Tests", async (t) => {
-  // Setup overrides for tests
-  const originalEnv = process.env;
-  process.env = { 
-    ...originalEnv,
-    PII_RESPONSE_SANITIZATION: "true",
-    PII_RESPONSE_SANITIZATION_MODE: "redact",
-    PII_TEST_BYPASS_MIN_WINDOW: "true"
-  };
-
   await t.test("THEORY-001: Infinite Streaming Buffer Accumulation", async () => {
     const transform = createPiiSseTransform({ windowSize: 10 });
     const writer = transform.writable.getWriter();
@@ -132,4 +132,27 @@ test("PII Reproduction Tests", async (t) => {
     assert.ok(outputB.includes("Hello world"), "Buffered content should be preserved on flush when the stop signal has no string fields");
   });
 });
+
+test.after(async () => {
+  if (originalSanitization !== undefined) {
+    process.env.PII_RESPONSE_SANITIZATION = originalSanitization;
+  } else {
+    delete process.env.PII_RESPONSE_SANITIZATION;
+  }
+  if (originalMode !== undefined) {
+    process.env.PII_RESPONSE_SANITIZATION_MODE = originalMode;
+  } else {
+    delete process.env.PII_RESPONSE_SANITIZATION_MODE;
+  }
+  if (originalBypass !== undefined) {
+    process.env.PII_TEST_BYPASS_MIN_WINDOW = originalBypass;
+  } else {
+    delete process.env.PII_TEST_BYPASS_MIN_WINDOW;
+  }
+
+  const coreDb = await import("../../src/lib/db/core.ts");
+  coreDb.resetDbInstance();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
 
