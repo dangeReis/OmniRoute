@@ -43,15 +43,15 @@ test("PII Reproduction Tests", async (t) => {
       // Timeout occurred
     }
 
-    // Since W=10 and input length is 51, it must emit immediately (no infinite withhold)
-    assert.ok(chunkValue !== null, "Should emit immediately because the buffer is not indefinitely withheld");
+    // Since W=10 and input length is 51, it must be withheld (timeout triggers) because the match is under the 100-character OOM threshold.
+    assert.strictEqual(chunkValue, null, "Should withhold the buffer");
 
     // Close the writer to check if the data is flushed at the end
     await writer.close();
     const finalResult = await reader.read();
     
     // Check if the overall stream contains redaction
-    const firstDecoded = new TextDecoder().decode(chunkValue);
+    const firstDecoded = chunkValue ? new TextDecoder().decode(chunkValue) : "";
     const finalDecoded = finalResult.value ? new TextDecoder().decode(finalResult.value) : "";
     const combined = firstDecoded + finalDecoded;
     assert.ok(combined.includes("[API_KEY_REDACTED]"), "Flushed output should be redacted");
