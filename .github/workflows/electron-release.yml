@@ -19,7 +19,6 @@ permissions:
 jobs:
   validate:
     name: Validate version
-    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.validate.outputs.version }}

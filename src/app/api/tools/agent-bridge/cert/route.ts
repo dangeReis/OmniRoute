@@ -3,6 +3,7 @@
  * POST /api/tools/agent-bridge/cert   — trust (install) the cert
  * LOCAL_ONLY: registered in routeGuard.ts
  */
+import { z } from "zod";
 import { installCert, checkCertInstalled } from "@/mitm/cert/install";
 import { resolveMitmDataDir } from "@/mitm/dataDir";
 import { getCachedPassword } from "@/mitm/manager";
@@ -27,10 +28,15 @@ export async function GET(): Promise<Response> {
   }
 }
 
+const certPostSchema = z.object({
+  sudoPassword: z.string().optional(),
+});
+
 export async function POST(request: Request): Promise<Response> {
-  const raw = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const sudoPassword =
-    typeof raw.sudoPassword === "string" ? raw.sudoPassword : (getCachedPassword() ?? "");
+  const raw = await request.json().catch(() => ({}));
+  const parsed = certPostSchema.safeParse(raw);
+  const data = parsed.success ? parsed.data : {};
+  const sudoPassword = data.sudoPassword || (getCachedPassword() ?? "");
 
   try {
     const crtPath = certPath();

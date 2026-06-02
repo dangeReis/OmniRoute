@@ -47,7 +47,6 @@ env:
 
 jobs:
   publish:
-    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

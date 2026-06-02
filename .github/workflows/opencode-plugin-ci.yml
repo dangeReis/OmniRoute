@@ -26,7 +26,6 @@ defaults:
 jobs:
   test:
     name: Test (Node ${{ matrix.node }})
-    if: github.repository == 'diegosouzapw/OmniRoute'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
