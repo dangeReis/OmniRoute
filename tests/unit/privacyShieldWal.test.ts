@@ -96,3 +96,36 @@ test("skips corrupted lines and restores valid ones", async () => {
     rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("concurrent WAL operations are serialized", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "omniroute-wal-test-"));
+  const filePath = join(tmpDir, "test.wal");
+  const key = randomBytes(32);
+  
+  try {
+    const wal = new PrivacyShieldWAL(filePath, key);
+    const now = Date.now();
+    
+    // Launch multiple appendMapping operations concurrently
+    const promises = [];
+    for (let i = 0; i < 20; i++) {
+      promises.push(wal.appendMapping("default", `__PS_EMAIL_${i.toString().padStart(12, "0")}__`, `user${i}@email.com`, "EMAIL", now));
+    }
+    
+    // Also launch a compaction concurrently
+    promises.push(wal.compact());
+    
+    await Promise.all(promises);
+    
+    const manager = new SessionManager();
+    await wal.restore(manager);
+    
+    const session = manager.getOrCreate("default");
+    // Verify that all mappings were safely written and loaded (no data loss)
+    for (let i = 0; i < 20; i++) {
+      assert.equal(session.resolve(`__PS_EMAIL_${i.toString().padStart(12, "0")}__`), `user${i}@email.com`);
+    }
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

@@ -33,7 +33,7 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   {
     name: "EMAIL",
     category: "EMAIL",
-    regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+    regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
   },
   {
     name: "API_KEY",

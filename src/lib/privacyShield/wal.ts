@@ -7,6 +7,7 @@ import type { SessionManager } from "./session.ts";
 export class PrivacyShieldWAL {
   private filePath: string;
   private encryptionKey: Buffer;
+  private queue: Promise<any> = Promise.resolve();
 
   constructor(filePath: string, encryptionKey: Buffer) {
     if (!encryptionKey || !Buffer.isBuffer(encryptionKey) || encryptionKey.length !== 32) {
@@ -14,6 +15,12 @@ export class PrivacyShieldWAL {
     }
     this.filePath = filePath;
     this.encryptionKey = encryptionKey;
+  }
+
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(task);
+    this.queue = next.then(() => {}, () => {});
+    return next;
   }
 
   static async validateConfig(filePath?: string): Promise<void> {
@@ -34,74 +41,80 @@ export class PrivacyShieldWAL {
     category: string,
     createdAt: number,
   ): Promise<void> {
-    const record = JSON.stringify({ sessionId, placeholder, original, category, createdAt });
-    const encrypted = this.encrypt(record);
-    await fs.appendFile(this.filePath, encrypted + "\n", "utf8");
+    return this.enqueue(async () => {
+      const record = JSON.stringify({ sessionId, placeholder, original, category, createdAt });
+      const encrypted = this.encrypt(record);
+      await fs.appendFile(this.filePath, encrypted + "\n", "utf8");
+    });
   }
 
   async restore(manager: SessionManager): Promise<void> {
-    let content: string;
-    try {
-      content = await fs.readFile(this.filePath, "utf8");
-    } catch (err: any) {
-      if (err.code === "ENOENT") {
-        return;
-      }
-      throw err;
-    }
-
-    const lines = content.split("\n").filter((l) => l.trim().length > 0);
-
-    for (const line of lines) {
+    return this.enqueue(async () => {
+      let content: string;
       try {
-        const decrypted = this.decrypt(line);
-        const { sessionId, placeholder, original, category, createdAt } = JSON.parse(decrypted);
-        // Expiry defaults to 1 hour after creation if not specified
-        const expiresAt = createdAt + 3600 * 1000;
-        const targetSessionId = sessionId || "default";
-        const session = manager.getOrCreate(targetSessionId);
-        session.addMapping(placeholder, original, category, expiresAt);
+        content = await fs.readFile(this.filePath, "utf8");
       } catch (err: any) {
-        console.warn("[PrivacyShieldWAL] Skipping unreadable WAL line:", err.message);
+        if (err.code === "ENOENT") {
+          return;
+        }
+        throw err;
       }
-    }
+
+      const lines = content.split("\n").filter((l) => l.trim().length > 0);
+
+      for (const line of lines) {
+        try {
+          const decrypted = this.decrypt(line);
+          const { sessionId, placeholder, original, category, createdAt } = JSON.parse(decrypted);
+          // Expiry defaults to 1 hour after creation if not specified
+          const expiresAt = createdAt + 3600 * 1000;
+          const targetSessionId = sessionId || "default";
+          const session = manager.getOrCreate(targetSessionId);
+          session.addMapping(placeholder, original, category, expiresAt);
+        } catch (err: any) {
+          console.warn("[PrivacyShieldWAL] Skipping unreadable WAL line:", err.message);
+        }
+      }
+    });
   }
 
   async compact(): Promise<void> {
-    let content: string;
-    try {
-      content = await fs.readFile(this.filePath, "utf8");
-    } catch (err: any) {
-      if (err.code === "ENOENT") {
-        return;
-      }
-      throw err;
-    }
-
-    const lines = content.split("\n").filter((l) => l.trim().length > 0);
-    const uniqueMappings = new Map<string, { sessionId: string; placeholder: string; original: string; category: string; createdAt: number }>();
-    const now = Date.now();
-
-    for (const line of lines) {
+    return this.enqueue(async () => {
+      let content: string;
       try {
-        const decrypted = this.decrypt(line);
-        const record = JSON.parse(decrypted);
-        // Only retain records that have not expired (TTL of 1 hour)
-        if (record.createdAt + 3600 * 1000 >= now) {
-          uniqueMappings.set(record.placeholder, record);
-        }
+        content = await fs.readFile(this.filePath, "utf8");
       } catch (err: any) {
-        console.warn("[PrivacyShieldWAL] Skipping unreadable WAL line during compaction:", err.message);
+        if (err.code === "ENOENT") {
+          return;
+        }
+        throw err;
       }
-    }
 
-    const newContent = Array.from(uniqueMappings.values())
-      .map((record) => this.encrypt(JSON.stringify(record)))
-      .join("\n") + "\n";
-    
-    const tmpPath = this.filePath + ".tmp";
-    await fs.writeFile(tmpPath, newContent, "utf8");
-    await fs.rename(tmpPath, this.filePath);
+      const lines = content.split("\n").filter((l) => l.trim().length > 0);
+      const uniqueMappings = new Map<string, { sessionId: string; placeholder: string; original: string; category: string; createdAt: number }>();
+      const now = Date.now();
+
+      for (const line of lines) {
+        try {
+          const decrypted = this.decrypt(line);
+          const record = JSON.parse(decrypted);
+          // Only retain records that have not expired (TTL of 1 hour)
+          if (record.createdAt + 3600 * 1000 >= now) {
+            uniqueMappings.set(record.placeholder, record);
+          }
+        } catch (err: any) {
+          console.warn("[PrivacyShieldWAL] Skipping unreadable WAL line during compaction:", err.message);
+        }
+      }
+
+      const newContent = Array.from(uniqueMappings.values())
+        .map((record) => this.encrypt(JSON.stringify(record)))
+        .join("\n") + "\n";
+      
+      const tmpPath = this.filePath + ".tmp";
+      await fs.writeFile(tmpPath, newContent, "utf8");
+      await fs.rename(tmpPath, this.filePath);
+    });
   }
 
   private encrypt(text: string): string {
