@@ -80,3 +80,45 @@ test("unknown placeholder passes through unchanged", () => {
   const combined = output + flushed;
   assert.ok(combined.includes(unknown), "unknown placeholder should pass through");
 });
+
+test("partialRegex does not match empty string at the end of safe text", () => {
+  const session = new PlaceholderSession();
+  const restorer = new StreamingRestorer(session);
+  
+  const partialRegex = (restorer as any).partialRegex;
+  const match = partialRegex.exec("hello world this is safe text");
+  assert.equal(match, null, "should not match empty string at the end of safe text");
+});
+
+test("createRestoringTransform forwards options to StreamingRestorer", async () => {
+  const { createRestoringTransform } = await import("../../src/lib/privacyShield/streamingRestorer");
+  const session = new PlaceholderSession();
+  
+  // Email contains a raw newline (multi-line secret)
+  const email = "john\nsecret@example.com";
+  const p = session.getOrCreatePlaceholder(email, "EMAIL");
+  
+  // Set escapeForJson: true
+  const transform = createRestoringTransform(session, { escapeForJson: true });
+  
+  const writer = transform.writable.getWriter();
+  const reader = transform.readable.getReader();
+  
+  const writePromise = (async () => {
+    await writer.write(new TextEncoder().encode(`{"email":"${p}"}`));
+    await writer.close();
+  })();
+  
+  const chunks: string[] = [];
+  let res = await reader.read();
+  while (!res.done) {
+    chunks.push(new TextDecoder().decode(res.value));
+    res = await reader.read();
+  }
+  
+  await writePromise;
+  
+  const output = chunks.join("");
+  // Newline should be escaped as \n
+  assert.ok(output.includes("john\\nsecret@example.com"), "newline should be JSON-escaped in the output");
+});

@@ -45,6 +45,7 @@ export function restoreDeep(obj: unknown, session: PlaceholderSession): void {
 
   function recurse(current: any) {
     if (!current || typeof current !== "object") return;
+    if (Buffer.isBuffer(current) || ArrayBuffer.isView(current)) return;
     if (visited.has(current)) return;
     visited.add(current);
 
@@ -119,6 +120,7 @@ export function redactDeep(
 
   function recurse(current: any) {
     if (!current || typeof current !== "object") return;
+    if (Buffer.isBuffer(current) || ArrayBuffer.isView(current)) return;
     if (visited.has(current)) return;
     visited.add(current);
 

@@ -30,7 +30,7 @@ export class StreamingRestorer {
 
     this.partialRegex = new RegExp(
       `(?:` +
-        `_*${prefixPart}?` +
+        `_+|_*${prefixPart}` +
         `|` +
         `_*${escapedCore}[A-Z0-9_]*` +
         `|` +
@@ -116,8 +116,11 @@ export class StreamingRestorer {
   }
 }
 
-export function createRestoringTransform(session: PlaceholderSession): TransformStream {
-  const restorer = new StreamingRestorer(session);
+export function createRestoringTransform(
+  session: PlaceholderSession,
+  options?: { escapeForJson?: boolean }
+): TransformStream {
+  const restorer = new StreamingRestorer(session, options);
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 

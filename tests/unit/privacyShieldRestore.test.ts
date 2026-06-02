@@ -174,4 +174,30 @@ test("restoreDeep throws on Map key collision", () => {
   }, /Map key collision during restore/);
 });
 
+test("redactDeep and restoreDeep skip Buffer and TypedArray instances", () => {
+  const session = new PlaceholderSession();
+  const emailPatterns = BUILTIN_PATTERNS.filter(p => p.category === "EMAIL");
+
+  const buffer = Buffer.from("this is a test email: user@example.com");
+  const typedArray = new Uint8Array([71, 101, 109, 105, 110, 105]); // "Gemini"
+
+  const obj = {
+    buffer,
+    typedArray,
+    email: "user@example.com"
+  };
+
+  // redactDeep should ignore the buffer and typed array contents (so they are not converted to placeholders)
+  redactDeep(obj, emailPatterns, [], session);
+  assert.equal(obj.buffer, buffer);
+  assert.equal(obj.typedArray, typedArray);
+  assert.ok(obj.email.includes("__PS_EMAIL_"));
+
+  // restoreDeep should also skip them
+  restoreDeep(obj, session);
+  assert.equal(obj.buffer, buffer);
+  assert.equal(obj.typedArray, typedArray);
+  assert.equal(obj.email, "user@example.com");
+});
+
 
