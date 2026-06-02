@@ -185,3 +185,17 @@ test("redactText handles reentrancy without corrupting shared RegExp lastIndex s
   const result = redactText(text, nestedPatterns, [], session);
   assert.equal(result.matches.length, 2, "Should find and redact all matches despite reentrant engine execution");
 });
+
+test("redactText handles malformed/non-string inputs gracefully", () => {
+  const session = new PlaceholderSession();
+  
+  // Call with undefined text
+  const res1 = redactText(undefined as any, [], [], session);
+  assert.equal(res1.text, "");
+  assert.equal(res1.matches.length, 0);
+  
+  // Call with non-string text (number)
+  const res2 = redactText(12345 as any, [], [], session);
+  assert.equal(res2.text, "");
+  assert.equal(res2.matches.length, 0);
+});

@@ -120,7 +120,9 @@ export function createRestoringTransform(
   session: PlaceholderSession,
   options?: { escapeForJson?: boolean }
 ): TransformStream {
-  const restorer = new StreamingRestorer(session, options);
+  const restorer = new StreamingRestorer(session, {
+    escapeForJson: options?.escapeForJson ?? true
+  });
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 

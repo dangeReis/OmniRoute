@@ -233,3 +233,44 @@ test("preserves custom expiresAt / TTL mappings on WAL restore and compaction", 
     rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("skips malformed/missing fields on WAL restore and compaction", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "omniroute-wal-test-"));
+  const filePath = join(tmpDir, "test.wal");
+  const key = randomBytes(32);
+  
+  try {
+    const wal = new PrivacyShieldWAL(filePath, key);
+    const encryptMethod = (wal as any).encrypt.bind(wal);
+    const fs = await import("node:fs/promises");
+    
+    const record1 = encryptMethod(JSON.stringify({ sessionId: "default", placeholder: "", original: "test@email.com", category: "EMAIL", createdAt: Date.now() }));
+    const record2 = encryptMethod(JSON.stringify({ sessionId: "default", placeholder: "__PS_EMAIL_valid1__", original: "", category: "EMAIL", createdAt: Date.now() }));
+    const record3 = encryptMethod(JSON.stringify({ sessionId: "default", placeholder: "__PS_EMAIL_valid2__", original: "test@email.com", category: "", createdAt: Date.now() }));
+    const record4 = encryptMethod(JSON.stringify({ sessionId: "default", placeholder: "__PS_EMAIL_valid3__", original: "test@email.com", category: "EMAIL", createdAt: Date.now() }));
+    
+    await fs.appendFile(filePath, record1 + "\n" + record2 + "\n" + record3 + "\n" + record4 + "\n", "utf8");
+    
+    // Verify restore skips records with empty/missing properties
+    const manager = new SessionManager();
+    await wal.restore(manager);
+    
+    const session = manager.getOrCreate("default");
+    assert.equal(session.resolve("__PS_EMAIL_valid3__"), "test@email.com", "Valid mapping should be loaded");
+    assert.equal(session.resolve("__PS_EMAIL_valid1__"), undefined, "Missing original should be skipped");
+    assert.equal(session.resolve("__PS_EMAIL_valid2__"), undefined, "Missing category should be skipped");
+    
+    // Verify compaction skips them too
+    await wal.compact();
+    
+    const manager2 = new SessionManager();
+    const wal2 = new PrivacyShieldWAL(filePath, key);
+    await wal2.restore(manager2);
+    
+    const session2 = manager2.getOrCreate("default");
+    assert.equal(session2.resolve("__PS_EMAIL_valid3__"), "test@email.com", "Valid mapping should still be loaded after compaction");
+    assert.equal(session2.resolve("__PS_EMAIL_valid1__"), undefined, "Missing fields should not survive compaction");
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

@@ -43,7 +43,7 @@ export function redactText(
   excludes: ExcludeRule[],
   session: PlaceholderSession,
 ): RedactResult {
-  if (!text) {
+  if (typeof text !== "string" || !text) {
     return { text: "", matches: [] };
   }
 

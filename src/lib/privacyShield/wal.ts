@@ -67,7 +67,16 @@ export class PrivacyShieldWAL {
         try {
           const decrypted = this.decrypt(line);
           const { sessionId, placeholder, original, category, createdAt, expiresAt: recordExpiresAt } = JSON.parse(decrypted);
-          if (typeof createdAt !== "number" || isNaN(createdAt)) {
+          if (
+            typeof createdAt !== "number" ||
+            isNaN(createdAt) ||
+            typeof placeholder !== "string" ||
+            !placeholder ||
+            typeof original !== "string" ||
+            !original ||
+            typeof category !== "string" ||
+            !category
+          ) {
             continue;
           }
           // Expiry defaults to 1 hour after creation if not specified
@@ -107,7 +116,16 @@ export class PrivacyShieldWAL {
         try {
           const decrypted = this.decrypt(line);
           const record = JSON.parse(decrypted);
-          if (typeof record.createdAt !== "number" || isNaN(record.createdAt)) {
+          if (
+            typeof record.createdAt !== "number" ||
+            isNaN(record.createdAt) ||
+            typeof record.placeholder !== "string" ||
+            !record.placeholder ||
+            typeof record.original !== "string" ||
+            !record.original ||
+            typeof record.category !== "string" ||
+            !record.category
+          ) {
             continue;
           }
           const expiresAt = typeof record.expiresAt === "number" && !isNaN(record.expiresAt)
