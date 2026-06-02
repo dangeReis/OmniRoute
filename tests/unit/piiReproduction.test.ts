@@ -12,13 +12,12 @@ process.env.DATA_DIR = tmpDir;
 const originalSanitization = process.env.PII_RESPONSE_SANITIZATION;
 const originalMode = process.env.PII_RESPONSE_SANITIZATION_MODE;
 const originalBypass = process.env.PII_TEST_BYPASS_MIN_WINDOW;
-
 process.env.PII_RESPONSE_SANITIZATION = "true";
 process.env.PII_RESPONSE_SANITIZATION_MODE = "redact";
 process.env.PII_TEST_BYPASS_MIN_WINDOW = "true";
 
-import { createPiiSseTransform } from "../../src/lib/streamingPiiTransform";
-import { sanitizePII } from "../../src/lib/piiSanitizer";
+import { createPiiSseTransform } from "../../src/lib/streamingPiiTransform.ts";
+import { sanitizePII } from "../../src/lib/piiSanitizer.ts";
 
 test("PII Reproduction Tests", async (t) => {
   await t.test("THEORY-001: Infinite Streaming Buffer Accumulation", async () => {
