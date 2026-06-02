@@ -1,5 +1,6 @@
 // src/lib/privacyShield/wal.ts
 import fs from "node:fs";
+import path from "node:path";
 import crypto from "node:crypto";
 import type { SessionManager } from "./session.ts";
 
@@ -15,8 +16,15 @@ export class PrivacyShieldWAL {
     this.encryptionKey = encryptionKey;
   }
 
-  static validateConfig(): void {
-    // Configuration validation check
+  static validateConfig(filePath?: string): void {
+    if (filePath) {
+      const dir = path.dirname(filePath);
+      try {
+        fs.accessSync(dir, fs.constants.W_OK);
+      } catch {
+        throw new Error(`Directory ${dir} is not writable`);
+      }
+    }
   }
 
   appendMapping(placeholder: string, original: string, category: string, createdAt: number): void {
@@ -53,12 +61,16 @@ export class PrivacyShieldWAL {
     const content = fs.readFileSync(this.filePath, "utf8");
     const lines = content.split("\n").filter((l) => l.trim().length > 0);
     const uniqueMappings = new Map<string, { placeholder: string; original: string; category: string; createdAt: number }>();
+    const now = Date.now();
 
     for (const line of lines) {
       try {
         const decrypted = this.decrypt(line);
         const record = JSON.parse(decrypted);
-        uniqueMappings.set(record.placeholder, record);
+        // Only retain records that have not expired (TTL of 1 hour)
+        if (record.createdAt + 3600 * 1000 >= now) {
+          uniqueMappings.set(record.placeholder, record);
+        }
       } catch (err) {
         throw err;
       }
@@ -84,8 +96,18 @@ export class PrivacyShieldWAL {
     if (parts.length < 2) {
       throw new Error("Invalid encrypted format");
     }
-    const iv = Buffer.from(parts.shift()!, "hex");
+    const ivHex = parts.shift()!;
     const encrypted = parts.join(":");
+    
+    if (!/^[a-f0-9]+$/i.test(ivHex) || !/^[a-f0-9]+$/i.test(encrypted)) {
+      throw new Error("Invalid encrypted format: non-hex characters");
+    }
+    
+    const iv = Buffer.from(ivHex, "hex");
+    if (iv.length !== 16) {
+      throw new Error("Invalid encrypted format: incorrect IV length");
+    }
+
     const decipher = crypto.createDecipheriv("aes-256-cbc", this.encryptionKey, iv);
     let decrypted = decipher.update(encrypted, "hex", "utf8");
     decrypted += decipher.final("utf8");

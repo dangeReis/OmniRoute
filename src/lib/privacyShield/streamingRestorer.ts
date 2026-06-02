@@ -2,6 +2,8 @@
 import type { PlaceholderSession } from "./session.ts";
 import { getPlaceholderRegex } from "./session.ts";
 
+const PARTIAL_REGEXP = /(_*PS?|_*PS_[A-Z0-9_]*|_*PS_[A-Z0-9_]+_[a-f0-9]*|_*PS_[A-Z0-9_]+_[a-f0-9]{12}(?:_\d*)?|_*PS_[A-Z0-9_]+_[a-f0-9]{12}(?:_\d+)?_?)$/i;
+
 export class StreamingRestorer {
   private session: PlaceholderSession;
   private escapeForJson: boolean;
@@ -19,7 +21,6 @@ export class StreamingRestorer {
     this.buffer = this.restoreWithJsonEscape(this.buffer);
 
     // Now, find if the buffer ends with a partial placeholder
-    const PARTIAL_REGEXP = /(_*PS?|_*PS_[A-Z0-9_]*|_*PS_[A-Z0-9_]+_[a-f0-9]*|_*PS_[A-Z0-9_]+_[a-f0-9]{12}(?:_\d*)?|_*PS_[A-Z0-9_]+_[a-f0-9]{12}(?:_\d+)?_?)$/i;
     const match = PARTIAL_REGEXP.exec(this.buffer);
 
     if (match) {
