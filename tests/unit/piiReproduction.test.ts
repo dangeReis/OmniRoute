@@ -31,27 +31,31 @@ test("PII Reproduction Tests", async (t) => {
     const piiText = "sk-123456789012345678901234567890123456789012345678"; // 51 chars
     await writer.write(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: piiText } }] })}\n`));
 
-    // Attempt to read with timeout. Since W=10, if it doesn't hang, it should emit immediately.
+    // Attempt to read with timeout. Since W=10, it should emit immediately (no hang).
     let chunkValue: any = null;
     try {
       const readPromise = reader.read();
       const result = await Promise.race([
         readPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 100))
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 200))
       ]);
       chunkValue = (result as any).value;
     } catch (err) {
       // Timeout occurred
     }
 
-    // If chunkValue is null, it means nothing was emitted before stream close (indefinite buffering).
-    assert.strictEqual(chunkValue, null, "Nothing should be emitted (timeout should trigger) because buffer is indefinitely withheld");
+    // Since W=10 and input length is 51, it must emit immediately (no infinite withhold)
+    assert.ok(chunkValue !== null, "Should emit immediately because the buffer is not indefinitely withheld");
 
     // Close the writer to check if the data is flushed at the end
     await writer.close();
     const finalResult = await reader.read();
-    const decoded = new TextDecoder().decode(finalResult.value);
-    assert.ok(decoded.includes("[API_KEY_REDACTED]"), "Flushed output should be redacted");
+    
+    // Check if the overall stream contains redaction
+    const firstDecoded = new TextDecoder().decode(chunkValue);
+    const finalDecoded = finalResult.value ? new TextDecoder().decode(finalResult.value) : "";
+    const combined = firstDecoded + finalDecoded;
+    assert.ok(combined.includes("[API_KEY_REDACTED]"), "Flushed output should be redacted");
   });
 
   await t.test("THEORY-002: Unicode Formatting Obfuscation Bypass & IPv6 Issues", async () => {
@@ -62,30 +66,30 @@ test("PII Reproduction Tests", async (t) => {
     const resultWordJoiner = sanitizePII(keyWithWordJoiner);
     const resultSoftHyphen = sanitizePII(keyWithSoftHyphen);
 
-    // If unredacted, it means it bypassed the sanitizer
-    assert.strictEqual(resultWordJoiner.text, keyWithWordJoiner, "API Key with Word Joiner bypassed sanitization");
-    assert.strictEqual(resultSoftHyphen.text, keyWithSoftHyphen, "API Key with Soft Hyphen bypassed sanitization");
+    // If successfully redacted, it should contain [API_KEY_REDACTED]
+    assert.ok(resultWordJoiner.text.includes("[API_KEY_REDACTED]"), "API Key with Word Joiner should be redacted");
+    assert.ok(resultSoftHyphen.text.includes("[API_KEY_REDACTED]"), "API Key with Soft Hyphen should be redacted");
 
     // 2. IPv6 lookbehind/lookahead issues
-    // abc::1 (preceded by alphabetic characters) gets incorrectly redacted
+    // abc::1 (preceded by alphabetic characters) should NOT get redacted
     const resultIpv6Lookbehind = sanitizePII("abc::1");
-    assert.strictEqual(resultIpv6Lookbehind.text, "abc[IP_REDACTED]", "abc::1 was incorrectly redacted (lookbehind missing on branch 2)");
+    assert.strictEqual(resultIpv6Lookbehind.text, "abc::1", "abc::1 should not be redacted");
 
-    // Invalid IPv6 followed by letters gets partially redacted
+    // Invalid IPv6 followed by letters should NOT get redacted
     const resultIpv6Lookahead = sanitizePII("2001:db8:3333:4444:5555:6666:7777:8888abcd");
-    assert.strictEqual(resultIpv6Lookahead.text, "[IP_REDACTED]abcd", "Invalid IPv6 with trailing characters was partially redacted (lookahead missing on branch 1)");
+    assert.strictEqual(resultIpv6Lookahead.text, "2001:db8:3333:4444:5555:6666:7777:8888abcd", "Invalid IPv6 with trailing characters should not be redacted");
   });
 
   await t.test("THEORY-003: False Positive Identifier Redaction", async () => {
     // 16-digit database ID/Snowflake ID
     const snowflakeId = "1234567890123456";
     const resultCc = sanitizePII(snowflakeId);
-    assert.strictEqual(resultCc.text, "[CC_REDACTED]", "16-digit numeric identifier incorrectly redacted as Credit Card");
+    assert.strictEqual(resultCc.text, snowflakeId, "16-digit numeric identifier should not be redacted as Credit Card if Luhn fails");
 
     // 11-digit database ID
     const dbId11 = "12345678901";
     const resultCpf = sanitizePII(dbId11);
-    assert.strictEqual(resultCpf.text, "[CPF_REDACTED]", "11-digit numeric identifier incorrectly redacted as CPF");
+    assert.strictEqual(resultCpf.text, dbId11, "11-digit numeric identifier should not be redacted as CPF if checksum fails");
   });
 
   await t.test("THEORY-004: Data Loss in Unknown Stream Fallbacks", async () => {
@@ -106,7 +110,7 @@ test("PII Reproduction Tests", async (t) => {
     }
     const outputA = chunksA.join("");
     // The raw text stream should NOT be wrapped in an OpenAI JSON envelope
-    assert.ok(outputA.includes('{"choices":'), "Raw text stream got wrapped in OpenAI JSON envelope upon flush");
+    assert.ok(!outputA.includes('{"choices":'), "Raw text stream should not get wrapped in OpenAI JSON envelope upon flush");
 
     // Scenario B: Non-standard JSON stream ending with a stop signal containing no string fields (data loss)
     const transformB = createPiiSseTransform({ windowSize: 200 });
@@ -124,7 +128,8 @@ test("PII Reproduction Tests", async (t) => {
       chunksB.push(new TextDecoder().decode(value));
     }
     const outputB = chunksB.join("");
-    // "Hello world" should be in the output, but it was lost because the fallback stop signal has no string fields
-    assert.ok(!outputB.includes("Hello world"), "Buffered content was permanently lost on flush when the stop signal had no string fields");
+    // "Hello world" should be preserved in the output
+    assert.ok(outputB.includes("Hello world"), "Buffered content should be preserved on flush when the stop signal has no string fields");
   });
 });
+
