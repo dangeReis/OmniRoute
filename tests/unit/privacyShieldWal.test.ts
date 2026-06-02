@@ -194,3 +194,42 @@ test("skips invalid createdAt mappings on WAL restore and compaction", async () 
     rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("preserves custom expiresAt / TTL mappings on WAL restore and compaction", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "omniroute-wal-test-"));
+  const filePath = join(tmpDir, "test.wal");
+  const key = randomBytes(32);
+  
+  try {
+    const wal = new PrivacyShieldWAL(filePath, key);
+    
+    // Add one mapping with explicit expiresAt in the future (longer than default 1h)
+    const longExpiresAt = Date.now() + 12 * 3600 * 1000;
+    await wal.appendMapping("default", "__PS_EMAIL_long1b2c3d4__", "long@email.com", "EMAIL", Date.now(), longExpiresAt);
+    
+    // Add one mapping with explicit expiresAt in the past (already expired)
+    const shortExpiresAt = Date.now() - 5000;
+    await wal.appendMapping("default", "__PS_EMAIL_short1b2c3d4__", "short@email.com", "EMAIL", Date.now() - 10000, shortExpiresAt);
+    
+    // Verify restore respects custom expiresAt
+    const manager = new SessionManager();
+    await wal.restore(manager);
+    
+    const session = manager.getOrCreate("default");
+    assert.equal(session.resolve("__PS_EMAIL_long1b2c3d4__"), "long@email.com", "Custom long TTL mapping should be loaded");
+    assert.equal(session.resolve("__PS_EMAIL_short1b2c3d4__"), undefined, "Custom short/expired TTL mapping should be skipped");
+    
+    // Verify compaction preserves custom expiresAt
+    await wal.compact();
+    
+    const manager2 = new SessionManager();
+    const wal2 = new PrivacyShieldWAL(filePath, key);
+    await wal2.restore(manager2);
+    
+    const session2 = manager2.getOrCreate("default");
+    assert.equal(session2.resolve("__PS_EMAIL_long1b2c3d4__"), "long@email.com", "Custom long TTL mapping should survive compaction");
+    assert.equal(session2.resolve("__PS_EMAIL_short1b2c3d4__"), undefined, "Custom short/expired TTL mapping should not exist after compaction");
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

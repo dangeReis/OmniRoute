@@ -87,7 +87,11 @@ export function restoreDeep(obj: unknown, session: PlaceholderSession): void {
       current.clear();
       for (const val of arr) {
         if (typeof val === "string") {
-          current.add(restoreText(val, session));
+          const restored = restoreText(val, session);
+          if (current.has(restored)) {
+            throw new Error(`Set element collision during restore: element "${val}" restored to "${restored}", which already exists in the Set`);
+          }
+          current.add(restored);
         } else if (val && typeof val === "object") {
           recurse(val);
           current.add(val);
@@ -162,7 +166,11 @@ export function redactDeep(
       current.clear();
       for (const val of arr) {
         if (typeof val === "string") {
-          current.add(redactText(val, patterns, excludes, session).text);
+          const redacted = redactText(val, patterns, excludes, session).text;
+          if (current.has(redacted)) {
+            throw new Error(`Set element collision during redact: element "${val}" redacted to "${redacted}", which already exists in the Set`);
+          }
+          current.add(redacted);
         } else if (val && typeof val === "object") {
           recurse(val);
           current.add(val);

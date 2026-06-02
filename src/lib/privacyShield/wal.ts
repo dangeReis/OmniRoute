@@ -40,9 +40,10 @@ export class PrivacyShieldWAL {
     original: string,
     category: string,
     createdAt: number,
+    expiresAt?: number,
   ): Promise<void> {
     return this.enqueue(async () => {
-      const record = JSON.stringify({ sessionId, placeholder, original, category, createdAt });
+      const record = JSON.stringify({ sessionId, placeholder, original, category, createdAt, expiresAt });
       const encrypted = this.encrypt(record);
       await fs.appendFile(this.filePath, encrypted + "\n", "utf8");
     });
@@ -65,12 +66,14 @@ export class PrivacyShieldWAL {
       for (const line of lines) {
         try {
           const decrypted = this.decrypt(line);
-          const { sessionId, placeholder, original, category, createdAt } = JSON.parse(decrypted);
+          const { sessionId, placeholder, original, category, createdAt, expiresAt: recordExpiresAt } = JSON.parse(decrypted);
           if (typeof createdAt !== "number" || isNaN(createdAt)) {
             continue;
           }
           // Expiry defaults to 1 hour after creation if not specified
-          const expiresAt = createdAt + 3600 * 1000;
+          const expiresAt = typeof recordExpiresAt === "number" && !isNaN(recordExpiresAt)
+            ? recordExpiresAt
+            : createdAt + 3600 * 1000;
           if (expiresAt < Date.now()) {
             continue;
           }
@@ -97,7 +100,7 @@ export class PrivacyShieldWAL {
       }
 
       const lines = content.split("\n").filter((l) => l.trim().length > 0);
-      const uniqueMappings = new Map<string, { sessionId: string; placeholder: string; original: string; category: string; createdAt: number }>();
+      const uniqueMappings = new Map<string, { sessionId: string; placeholder: string; original: string; category: string; createdAt: number; expiresAt?: number }>();
       const now = Date.now();
 
       for (const line of lines) {
@@ -107,9 +110,15 @@ export class PrivacyShieldWAL {
           if (typeof record.createdAt !== "number" || isNaN(record.createdAt)) {
             continue;
           }
-          // Only retain records that have not expired (TTL of 1 hour)
-          if (record.createdAt + 3600 * 1000 >= now) {
-            uniqueMappings.set(record.placeholder, record);
+          const expiresAt = typeof record.expiresAt === "number" && !isNaN(record.expiresAt)
+            ? record.expiresAt
+            : record.createdAt + 3600 * 1000;
+          // Only retain records that have not expired
+          if (expiresAt >= now) {
+            uniqueMappings.set(record.placeholder, {
+              ...record,
+              expiresAt,
+            });
           }
         } catch (err: any) {
           console.warn("[PrivacyShieldWAL] Skipping unreadable WAL line during compaction:", err.message);

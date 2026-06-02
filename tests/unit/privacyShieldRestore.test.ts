@@ -200,4 +200,29 @@ test("redactDeep and restoreDeep skip Buffer and TypedArray instances", () => {
   assert.equal(obj.email, "user@example.com");
 });
 
+test("restoreDeep throws on Set element collision", () => {
+  const session = new PlaceholderSession();
+  const email = "user@example.com";
+  const placeholder = session.getOrCreatePlaceholder(email, "EMAIL");
+
+  const set = new Set<any>([placeholder, email]);
+
+  assert.throws(() => {
+    restoreDeep(set, session);
+  }, /Set element collision during restore/);
+});
+
+test("redactDeep throws on Set element collision", () => {
+  const session = new PlaceholderSession();
+  const emailPatterns = BUILTIN_PATTERNS.filter(p => p.category === "EMAIL");
+  const email = "user@example.com";
+  const placeholder = session.getOrCreatePlaceholder(email, "EMAIL");
+
+  const set = new Set<any>([email, placeholder]);
+
+  assert.throws(() => {
+    redactDeep(set, emailPatterns, [], session);
+  }, /Set element collision during redact/);
+});
+
 
