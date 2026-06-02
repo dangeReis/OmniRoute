@@ -18,7 +18,7 @@ function luhnCheck(digitsStr: string): boolean {
   let sum = 0;
   let shouldDouble = false;
   for (let i = digits.length - 1; i >= 0; i--) {
-    let val = parseInt(digits[i], 10);
+    let val = digits.charCodeAt(i) - 48;
     if (shouldDouble) {
       val *= 2;
       if (val > 9) val -= 9;

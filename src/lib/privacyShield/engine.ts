@@ -34,7 +34,7 @@ function getGlobalRegex(regex: RegExp): RegExp {
     cached = new RegExp(regex.source, flags);
     globalRegexCache.set(regex, cached);
   }
-  return cached;
+  return new RegExp(cached);
 }
 
 export function redactText(

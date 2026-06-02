@@ -45,8 +45,6 @@ export class PlaceholderSession {
       if (this.isExpired(mapping)) {
         this.mappings.delete(placeholder);
         this.originalToPlaceholder.delete(this.mappingKey(mapping.original, mapping.category));
-      } else {
-        break;
       }
     }
   }
@@ -67,14 +65,15 @@ export class PlaceholderSession {
       }
     }
 
-    if (this.mappings.size >= this.maxMappings) {
+    while (this.mappings.size >= this.maxMappings) {
       const oldestPlaceholder = this.mappings.keys().next().value;
-      if (oldestPlaceholder) {
-        const oldestMapping = this.mappings.get(oldestPlaceholder);
-        if (oldestMapping) {
-          this.mappings.delete(oldestPlaceholder);
-          this.originalToPlaceholder.delete(this.mappingKey(oldestMapping.original, oldestMapping.category));
-        }
+      if (!oldestPlaceholder) break;
+      const oldestMapping = this.mappings.get(oldestPlaceholder);
+      if (oldestMapping) {
+        this.mappings.delete(oldestPlaceholder);
+        this.originalToPlaceholder.delete(this.mappingKey(oldestMapping.original, oldestMapping.category));
+      } else {
+        break;
       }
     }
 
