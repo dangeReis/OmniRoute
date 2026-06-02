@@ -56,11 +56,24 @@ export function restoreDeep(obj: unknown, session: PlaceholderSession): void {
         }
       }
     } else if (current instanceof Map) {
-      for (const [key, val] of current.entries()) {
+      const keys = Array.from(current.keys());
+      for (const key of keys) {
+        const val = current.get(key);
+        let finalKey = key;
+        if (typeof key === "string") {
+          finalKey = restoreText(key, session);
+        }
+        let finalVal = val;
         if (typeof val === "string") {
-          current.set(key, restoreText(val, session));
+          finalVal = restoreText(val, session);
         } else if (val && typeof val === "object") {
           recurse(val);
+        }
+        if (finalKey !== key) {
+          current.delete(key);
+          current.set(finalKey, finalVal);
+        } else if (finalVal !== val) {
+          current.set(key, finalVal);
         }
       }
     } else if (current instanceof Set) {
@@ -114,11 +127,24 @@ export function redactDeep(
         }
       }
     } else if (current instanceof Map) {
-      for (const [key, val] of current.entries()) {
+      const keys = Array.from(current.keys());
+      for (const key of keys) {
+        const val = current.get(key);
+        let finalKey = key;
+        if (typeof key === "string") {
+          finalKey = redactText(key, patterns, excludes, session).text;
+        }
+        let finalVal = val;
         if (typeof val === "string") {
-          current.set(key, redactText(val, patterns, excludes, session).text);
+          finalVal = redactText(val, patterns, excludes, session).text;
         } else if (val && typeof val === "object") {
           recurse(val);
+        }
+        if (finalKey !== key) {
+          current.delete(key);
+          current.set(finalKey, finalVal);
+        } else if (finalVal !== val) {
+          current.set(key, finalVal);
         }
       }
     } else if (current instanceof Set) {

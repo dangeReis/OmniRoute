@@ -90,7 +90,7 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   {
     name: "JWT",
     category: "JWT",
-    regex: /\beyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g,
+    regex: /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g,
   },
   {
     name: "PRIVATE_KEY",
