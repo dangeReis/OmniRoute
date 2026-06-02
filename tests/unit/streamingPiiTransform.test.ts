@@ -260,10 +260,110 @@ test("sanitize compressed IPv6 addresses", async () => {
   assert.ok(outputCompressed.includes("[IP_REDACTED]"), "redaction marker should be present for compressed IPv6");
 });
 
+test("no event: prefix in flushed chunk when no event line was seen", async () => {
+  // If no "event:" line preceded the data lines, lastEventLine should remain
+  // empty and the flushed payload must NOT have any "event:" prepended.
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const inputLine = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [inputLine + doneLine]);
+
+  // The flushed chunk (last 10 chars "klmnopqrst") must NOT be preceded by any "event:" line.
+  assert.ok(!output.includes("event:"), "no event: prefix should appear when no event line was seen");
+});
+
+test("event name preserved when stream closes without [DONE] sentinel", async () => {
+  // The stream flush path (TransformStream flush()) must also prepend lastEventLine.
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const eventLine = "event: response.output_text.delta\n";
+  // 20-char content — window=10 means 10 chars are buffered and flushed on close.
+  const inputLine = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
+
+  // No [DONE] — rely on the TransformStream flush() callback.
+  const output = await testTransform(transform, [eventLine + inputLine]);
+
+  assert.ok(
+    output.includes("event: response.output_text.delta"),
+    "event name should be preserved even when stream closes without [DONE]"
+  );
+});
+
+test("event: line without trailing space is tracked as currentEventLine", async () => {
+  // The code checks `line.startsWith("event:")` — this matches both
+  // "event: foo" and "event:foo". Both forms should be captured.
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  // Use the no-space variant: "event:custom.event"
+  const eventLine = "event:custom.event\n";
+  const inputLine = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [eventLine + inputLine + doneLine]);
+
+  assert.ok(output.includes("event:custom.event"), "no-space event: form should be tracked and prepended on flush");
+});
+
+test("lastEventLine is not updated when processing a stop-signal chunk", async () => {
+  // The code guards: `if (!isStopSignal && !isSnapshot) { lastEventLine = currentEventLine; }`
+  // A stop-signal chunk (finish_reason present) must not overwrite lastEventLine with an
+  // event name that belongs only to the stop chunk.
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  // First: a regular content chunk preceded by a named event.
+  const contentEventLine = "event: response.output_text.delta\n";
+  const contentData = `data: {"choices":[{"delta":{"content":"abcdefghijklmno"}}]}\n\n`;
+
+  // Second: a stop signal preceded by a DIFFERENT event name.
+  // lastEventLine should remain "response.output_text.delta" (from the content chunk),
+  // not "response.done" (from the stop signal).
+  const stopEventLine = "event: response.done\n";
+  const stopData = `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [
+    contentEventLine + contentData,
+    stopEventLine + stopData + doneLine,
+  ]);
+
+  // The flushed chunk (the buffered tail of "abcdefghijklmno") should be preceded by
+  // "response.output_text.delta", not "response.done".
+  assert.ok(
+    output.includes("event: response.output_text.delta"),
+    "flushed chunk should carry the content event name, not the stop-signal event name"
+  );
+  // "response.done" may appear in the pass-through of the stop event line itself,
+  // but should NOT be the event name attached to the flushed data payload.
+  const flushedSection = output.slice(output.lastIndexOf("event: response.output_text.delta"));
+  assert.ok(
+    !flushedSection.startsWith("event: response.done"),
+    "flushed payload must not be tagged with the stop-signal event name"
+  );
+});
+
+test("two consecutive events with different names each get their own event name on flush", async () => {
+  // Sequence: event-A → content-A (fills window) → event-B → content-B (fills window) → [DONE]
+  // The flushed tail of content-A should carry event-A, and the flushed tail of content-B event-B.
+  const transform = (createPiiSseTransform as any)({ windowSize: 5 });
+
+  const eventA = "event: event.type.alpha\n";
+  const dataA = `data: {"choices":[{"delta":{"content":"abcdefghij"}}]}\n\n`;
+
+  const eventB = "event: event.type.beta\n";
+  const dataB = `data: {"choices":[{"delta":{"content":"klmnopqrst"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [eventA + dataA + eventB + dataB + doneLine]);
+
+  assert.ok(output.includes("event: event.type.alpha"), "event-A name should appear in output");
+  assert.ok(output.includes("event: event.type.beta"), "event-B name should appear in output");
+});
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;
-  } else {
+
     delete process.env.PII_RESPONSE_SANITIZATION;
   }
 
