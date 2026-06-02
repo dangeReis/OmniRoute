@@ -68,6 +68,9 @@ export class PrivacyShieldWAL {
           const { sessionId, placeholder, original, category, createdAt } = JSON.parse(decrypted);
           // Expiry defaults to 1 hour after creation if not specified
           const expiresAt = createdAt + 3600 * 1000;
+          if (expiresAt < Date.now()) {
+            continue;
+          }
           const targetSessionId = sessionId || "default";
           const session = manager.getOrCreate(targetSessionId);
           session.addMapping(placeholder, original, category, expiresAt);

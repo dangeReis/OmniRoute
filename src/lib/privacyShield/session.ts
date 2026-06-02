@@ -45,6 +45,8 @@ export class PlaceholderSession {
       if (this.isExpired(mapping)) {
         this.mappings.delete(placeholder);
         this.originalToPlaceholder.delete(this.mappingKey(mapping.original, mapping.category));
+      } else {
+        break;
       }
     }
   }

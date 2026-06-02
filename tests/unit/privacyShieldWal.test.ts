@@ -129,3 +129,30 @@ test("concurrent WAL operations are serialized", async () => {
     rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("skips expired mappings on WAL restore", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "omniroute-wal-test-"));
+  const filePath = join(tmpDir, "test.wal");
+  const key = randomBytes(32);
+  
+  try {
+    const wal = new PrivacyShieldWAL(filePath, key);
+    
+    // Add one expired mapping (created more than 1 hour ago)
+    const expiredTime = Date.now() - 3600 * 1000 - 5000;
+    await wal.appendMapping("default", "__PS_EMAIL_expired1b2c3d4__", "expired@email.com", "EMAIL", expiredTime);
+    
+    // Add one valid mapping
+    const now = Date.now();
+    await wal.appendMapping("default", "__PS_EMAIL_valid1b2c3d4__", "valid@email.com", "EMAIL", now);
+    
+    const manager = new SessionManager();
+    await wal.restore(manager);
+    
+    const session = manager.getOrCreate("default");
+    assert.equal(session.resolve("__PS_EMAIL_expired1b2c3d4__"), undefined, "Expired mapping should be skipped");
+    assert.equal(session.resolve("__PS_EMAIL_valid1b2c3d4__"), "valid@email.com", "Valid mapping should be loaded");
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
