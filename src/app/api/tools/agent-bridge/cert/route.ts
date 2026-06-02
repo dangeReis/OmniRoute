@@ -27,10 +27,17 @@ export async function GET(): Promise<Response> {
   }
 }
 
+import { z } from "zod";
+
+const certPostSchema = z.object({
+  sudoPassword: z.string().optional(),
+});
+
 export async function POST(request: Request): Promise<Response> {
-  const raw = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const sudoPassword =
-    typeof raw.sudoPassword === "string" ? raw.sudoPassword : (getCachedPassword() ?? "");
+  const raw = await request.json().catch(() => ({}));
+  const parsed = certPostSchema.safeParse(raw);
+  const data = parsed.success ? parsed.data : {};
+  const sudoPassword = data.sudoPassword || (getCachedPassword() ?? "");
 
   try {
     const crtPath = certPath();

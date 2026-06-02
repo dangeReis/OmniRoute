@@ -127,6 +127,15 @@ const IGNORE_FROM_CODE = new Set([
   // NVIDIA diagnostic/test helpers used only by ad-hoc scripts.
   "NVIDIA_BASE_URL",
   "NVIDIA_MODEL",
+  // Internal tuneables, test knobs, or provider oauth variables.
+  "CODEX_REFRESH_SPACING_MS",
+  "DEBUG",
+  "HEAP_PRESSURE_THRESHOLD_MB",
+  "OMNIRROUTE_TRACE",
+  "PII_TEST_BYPASS_MIN_WINDOW",
+  "PII_WINDOW_SIZE",
+  "TRAE_STREAM_TIMEOUT_MS",
+  "TRAE_TOKEN",
 ]);
 
 // Vars documented in ENVIRONMENT.md but intentionally absent from .env.example.
