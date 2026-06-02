@@ -2,16 +2,48 @@
 import type { PlaceholderSession } from "./session.ts";
 import { getPlaceholderRegex } from "./session.ts";
 
-const PARTIAL_REGEXP = /(_*PS?|_*PS_[A-Z0-9_]*|_*PS_[A-Z0-9_]+_[a-f0-9]*|_*PS_[A-Z0-9_]+_[a-f0-9]{12}(?:_\d*)?|_*PS_[A-Z0-9_]+_[a-f0-9]{12}(?:_\d+)?_?)$/i;
-
 export class StreamingRestorer {
   private session: PlaceholderSession;
   private escapeForJson: boolean;
   private buffer: string = "";
+  private partialRegex: RegExp;
+  private placeholderRegex: RegExp;
+  private maxPartialLength: number;
 
   constructor(session: PlaceholderSession, options?: { escapeForJson?: boolean }) {
     this.session = session;
     this.escapeForJson = options?.escapeForJson ?? false;
+
+    const prefix = this.session.prefix;
+    const core = prefix.replace(/^_+|_+$/g, "");
+    const escapedCore = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // Dynamically build prefix partial parts, e.g. for "PS" -> "P|PS"
+    const prefixPartParts = [];
+    for (let i = 1; i <= core.length; i++) {
+      prefixPartParts.push(core.slice(0, i));
+    }
+    const prefixPart = prefixPartParts.length > 0 
+      ? `(?:${prefixPartParts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`
+      : "";
+
+    this.partialRegex = new RegExp(
+      `(?:` +
+        `_*${prefixPart}?` +
+        `|` +
+        `_*${escapedCore}_[A-Z0-9_]*` +
+        `|` +
+        `_*${escapedCore}_[A-Z0-9_]+_[a-f0-9]{0,12}` +
+        `|` +
+        `_*${escapedCore}_[A-Z0-9_]+_[a-f0-9]{12}_\\d*` +
+        `|` +
+        `_*${escapedCore}_[A-Z0-9_]+_[a-f0-9]{12}(?:_\\d+)?_?` +
+      `)$`,
+      "i"
+    );
+
+    this.placeholderRegex = getPlaceholderRegex(prefix);
+    this.maxPartialLength = prefix.length + 128; // dynamic safety valve limit based on placeholder contract
   }
 
   push(text: string): string {
@@ -21,15 +53,14 @@ export class StreamingRestorer {
     this.buffer = this.restoreWithJsonEscape(this.buffer);
 
     // Now, find if the buffer ends with a partial placeholder
-    const match = PARTIAL_REGEXP.exec(this.buffer);
+    const match = this.partialRegex.exec(this.buffer);
 
     if (match) {
       const matchedStr = match[0];
-      const placeholderRegex = getPlaceholderRegex();
       
       // If it's a complete, valid placeholder, we don't buffer it as a partial (since we already tried to resolve it).
-      // If it is longer than the safety limit (64 chars), we don't buffer it either.
-      if (matchedStr.length <= 64 && !placeholderRegex.test(matchedStr)) {
+      // If it is longer than the safety limit, we don't buffer it either.
+      if (matchedStr.length <= this.maxPartialLength && !this.placeholderRegex.test(matchedStr)) {
         const emitText = this.buffer.slice(0, match.index);
         this.buffer = this.buffer.slice(match.index);
         return emitText;
@@ -55,7 +86,7 @@ export class StreamingRestorer {
   private restoreWithJsonEscape(text: string): string {
     if (typeof text !== "string" || !text) return text;
     
-    const baseRegex = getPlaceholderRegex();
+    const baseRegex = getPlaceholderRegex(this.session.prefix);
     const globalRegex = new RegExp(baseRegex.source, "g");
     
     return text.replace(globalRegex, (match) => {

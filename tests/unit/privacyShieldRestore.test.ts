@@ -140,4 +140,38 @@ test("restoreDeep and redactDeep support Maps (including keys) and Sets", () => 
   assert.ok(set.has("user@example.com"));
 });
 
+test("redactDeep throws on Map key collision", () => {
+  const session = new PlaceholderSession();
+  const emailPatterns = BUILTIN_PATTERNS.filter(p => p.category === "EMAIL");
+
+  // We set up a map where two different email keys would redact to different placeholders,
+  // but if one of them is already the target placeholder, a collision will occur.
+  const email1 = "user1@example.com";
+  const placeholder1 = session.getOrCreatePlaceholder(email1, "EMAIL");
+
+  const map = new Map<any, any>([
+    [email1, "val1"],
+    [placeholder1, "val2"] // Already exists as the placeholder
+  ]);
+
+  assert.throws(() => {
+    redactDeep(map, emailPatterns, [], session);
+  }, /Map key collision during redact/);
+});
+
+test("restoreDeep throws on Map key collision", () => {
+  const session = new PlaceholderSession();
+  const email = "user@example.com";
+  const placeholder = session.getOrCreatePlaceholder(email, "EMAIL");
+
+  const map = new Map<any, any>([
+    [placeholder, "val1"],
+    [email, "val2"] // Target key already exists in the map
+  ]);
+
+  assert.throws(() => {
+    restoreDeep(map, session);
+  }, /Map key collision during restore/);
+});
+
 

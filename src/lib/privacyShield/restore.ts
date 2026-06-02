@@ -70,6 +70,9 @@ export function restoreDeep(obj: unknown, session: PlaceholderSession): void {
           recurse(val);
         }
         if (finalKey !== key) {
+          if (current.has(finalKey)) {
+            throw new Error(`Map key collision during restore: key "${String(key)}" restored to "${String(finalKey)}", which already exists`);
+          }
           current.delete(key);
           current.set(finalKey, finalVal);
         } else if (finalVal !== val) {
@@ -141,6 +144,9 @@ export function redactDeep(
           recurse(val);
         }
         if (finalKey !== key) {
+          if (current.has(finalKey)) {
+            throw new Error(`Map key collision during redact: key "${String(key)}" redacted to "${String(finalKey)}", which already exists`);
+          }
           current.delete(key);
           current.set(finalKey, finalVal);
         } else if (finalVal !== val) {

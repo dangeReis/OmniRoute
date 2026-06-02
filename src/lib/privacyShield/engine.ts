@@ -25,6 +25,18 @@ function isExcluded(text: string, excludes: ExcludeRule[]): boolean {
   return false;
 }
 
+const globalRegexCache = new WeakMap<RegExp, RegExp>();
+
+function getGlobalRegex(regex: RegExp): RegExp {
+  let cached = globalRegexCache.get(regex);
+  if (!cached) {
+    const flags = regex.flags.includes("g") ? regex.flags : regex.flags + "g";
+    cached = new RegExp(regex.source, flags);
+    globalRegexCache.set(regex, cached);
+  }
+  return cached;
+}
+
 export function redactText(
   text: string,
   patterns: PatternRule[],
@@ -39,12 +51,9 @@ export function redactText(
 
   // Gather all candidate matches
   for (const pattern of patterns) {
-    pattern.regex.lastIndex = 0;
+    const regexCopy = getGlobalRegex(pattern.regex);
+    regexCopy.lastIndex = 0;
     let match: RegExpExecArray | null;
-    
-    // Create a copy of regex with global flag to avoid infinite loops and ensure all occurrences match
-    const flags = pattern.regex.flags.includes("g") ? pattern.regex.flags : pattern.regex.flags + "g";
-    const regexCopy = new RegExp(pattern.regex.source, flags);
     
     while ((match = regexCopy.exec(text)) !== null) {
       const matchText = match[0];

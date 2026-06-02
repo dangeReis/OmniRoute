@@ -16,8 +16,9 @@ export class PlaceholderSession {
   readonly prefix: string;
   private salt: string;
   private mappings = new Map<string, Mapping>(); // placeholder -> Mapping
-  private originalToPlaceholder = new Map<string, string>(); // original -> placeholder
+  private originalToPlaceholder = new Map<string, string>(); // category\0original -> placeholder
   private sequence = 0;
+  private lastCleaned = 0;
 
   constructor(options?: { maxMappings?: number; ttlMs?: number; prefix?: string }) {
     this.maxMappings = options?.maxMappings ?? 10000;
@@ -26,15 +27,25 @@ export class PlaceholderSession {
     this.salt = crypto.randomBytes(16).toString("hex");
   }
 
+  private mappingKey(original: string, category: string): string {
+    return `${category}\x00${original}`;
+  }
+
   private isExpired(mapping: Mapping): boolean {
     return Date.now() > mapping.expiresAt;
   }
 
   private cleanExpired() {
+    const now = Date.now();
+    if (now - this.lastCleaned < 5000) {
+      return;
+    }
+    this.lastCleaned = now;
+
     for (const [placeholder, mapping] of this.mappings.entries()) {
       if (this.isExpired(mapping)) {
         this.mappings.delete(placeholder);
-        this.originalToPlaceholder.delete(mapping.original);
+        this.originalToPlaceholder.delete(this.mappingKey(mapping.original, mapping.category));
       }
     }
   }
@@ -42,7 +53,8 @@ export class PlaceholderSession {
   getOrCreatePlaceholder(original: string, category: string): string {
     this.cleanExpired();
 
-    const existingPlaceholder = this.originalToPlaceholder.get(original);
+    const key = this.mappingKey(original, category);
+    const existingPlaceholder = this.originalToPlaceholder.get(key);
     if (existingPlaceholder) {
       const mapping = this.mappings.get(existingPlaceholder);
       if (mapping) {
@@ -65,17 +77,18 @@ export class PlaceholderSession {
         const oldestMapping = this.mappings.get(oldestPlaceholder);
         if (oldestMapping) {
           this.mappings.delete(oldestPlaceholder);
-          this.originalToPlaceholder.delete(oldestMapping.original);
+          this.originalToPlaceholder.delete(this.mappingKey(oldestMapping.original, oldestMapping.category));
         }
       }
     }
 
+    const normalizedCategory = category.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
     const hash = crypto.createHmac("sha256", this.salt).update(original).digest("hex").slice(0, 12);
-    let placeholder = `${this.prefix}${category}_${hash}__`;
+    let placeholder = `${this.prefix}${normalizedCategory}_${hash}__`;
     let suffix = 0;
     while (this.mappings.has(placeholder) && this.mappings.get(placeholder)!.original !== original) {
       suffix++;
-      placeholder = `${this.prefix}${category}_${hash}_${suffix}__`;
+      placeholder = `${this.prefix}${normalizedCategory}_${hash}_${suffix}__`;
     }
 
     const mapping: Mapping = {
@@ -87,7 +100,7 @@ export class PlaceholderSession {
     };
 
     this.mappings.set(placeholder, mapping);
-    this.originalToPlaceholder.set(original, placeholder);
+    this.originalToPlaceholder.set(key, placeholder);
 
     return placeholder;
   }
@@ -98,7 +111,7 @@ export class PlaceholderSession {
 
     if (this.isExpired(mapping)) {
       this.mappings.delete(placeholder);
-      this.originalToPlaceholder.delete(mapping.original);
+      this.originalToPlaceholder.delete(this.mappingKey(mapping.original, mapping.category));
       return undefined;
     }
 
@@ -116,7 +129,7 @@ export class PlaceholderSession {
       expiresAt,
     };
     this.mappings.set(placeholder, mapping);
-    this.originalToPlaceholder.set(original, placeholder);
+    this.originalToPlaceholder.set(this.mappingKey(original, category), placeholder);
   }
 
   get size(): number {
@@ -156,5 +169,6 @@ export class SessionManager {
 
 export function getPlaceholderRegex(prefix: string = "__PS_"): RegExp {
   const core = prefix.replace(/^_+|_+$/g, "");
-  return new RegExp(`_*${core}_[A-Z0-9_]+?_[a-f0-9]{12}(?:_\\d+)?__`);
+  const escapedCore = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`_*${escapedCore}_[A-Z0-9_]+?_[a-f0-9]{12}(?:_\\d+)?__`);
 }

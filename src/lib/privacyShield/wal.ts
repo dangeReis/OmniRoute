@@ -1,5 +1,5 @@
 // src/lib/privacyShield/wal.ts
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { SessionManager } from "./session.ts";
@@ -16,51 +16,70 @@ export class PrivacyShieldWAL {
     this.encryptionKey = encryptionKey;
   }
 
-  static validateConfig(filePath?: string): void {
+  static async validateConfig(filePath?: string): Promise<void> {
     if (filePath) {
       const dir = path.dirname(filePath);
       try {
-        fs.accessSync(dir, fs.constants.W_OK);
+        await fs.access(dir, fs.constants.W_OK);
       } catch {
         throw new Error(`Directory ${dir} is not writable`);
       }
     }
   }
 
-  appendMapping(placeholder: string, original: string, category: string, createdAt: number): void {
-    const record = JSON.stringify({ placeholder, original, category, createdAt });
+  async appendMapping(
+    sessionId: string,
+    placeholder: string,
+    original: string,
+    category: string,
+    createdAt: number,
+  ): Promise<void> {
+    const record = JSON.stringify({ sessionId, placeholder, original, category, createdAt });
     const encrypted = this.encrypt(record);
-    fs.appendFileSync(this.filePath, encrypted + "\n", "utf8");
+    await fs.appendFile(this.filePath, encrypted + "\n", "utf8");
   }
 
-  restore(manager: SessionManager): void {
-    if (!fs.existsSync(this.filePath)) {
-      return;
+  async restore(manager: SessionManager): Promise<void> {
+    let content: string;
+    try {
+      content = await fs.readFile(this.filePath, "utf8");
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        return;
+      }
+      throw err;
     }
-    const content = fs.readFileSync(this.filePath, "utf8");
+
     const lines = content.split("\n").filter((l) => l.trim().length > 0);
-    const defaultSession = manager.getOrCreate("default");
 
     for (const line of lines) {
       try {
         const decrypted = this.decrypt(line);
-        const { placeholder, original, category, createdAt } = JSON.parse(decrypted);
+        const { sessionId, placeholder, original, category, createdAt } = JSON.parse(decrypted);
         // Expiry defaults to 1 hour after creation if not specified
         const expiresAt = createdAt + 3600 * 1000;
-        defaultSession.addMapping(placeholder, original, category, expiresAt);
+        const targetSessionId = sessionId || "default";
+        const session = manager.getOrCreate(targetSessionId);
+        session.addMapping(placeholder, original, category, expiresAt);
       } catch (err) {
         throw err;
       }
     }
   }
 
-  compact(): void {
-    if (!fs.existsSync(this.filePath)) {
-      return;
+  async compact(): Promise<void> {
+    let content: string;
+    try {
+      content = await fs.readFile(this.filePath, "utf8");
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        return;
+      }
+      throw err;
     }
-    const content = fs.readFileSync(this.filePath, "utf8");
+
     const lines = content.split("\n").filter((l) => l.trim().length > 0);
-    const uniqueMappings = new Map<string, { placeholder: string; original: string; category: string; createdAt: number }>();
+    const uniqueMappings = new Map<string, { sessionId: string; placeholder: string; original: string; category: string; createdAt: number }>();
     const now = Date.now();
 
     for (const line of lines) {
@@ -81,36 +100,44 @@ export class PrivacyShieldWAL {
       .join("\n") + "\n";
     
     const tmpPath = this.filePath + ".tmp";
-    fs.writeFileSync(tmpPath, newContent, "utf8");
-    fs.renameSync(tmpPath, this.filePath);
+    await fs.writeFile(tmpPath, newContent, "utf8");
+    await fs.rename(tmpPath, this.filePath);
   }
 
   private encrypt(text: string): string {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv("aes-256-cbc", this.encryptionKey, iv);
+    const iv = crypto.randomBytes(12); // Standard 12-byte IV for GCM
+    const cipher = crypto.createCipheriv("aes-256-gcm", this.encryptionKey, iv);
     let encrypted = cipher.update(text, "utf8", "hex");
     encrypted += cipher.final("hex");
-    return iv.toString("hex") + ":" + encrypted;
+    const authTag = cipher.getAuthTag();
+    return iv.toString("hex") + ":" + encrypted + ":" + authTag.toString("hex");
   }
 
   private decrypt(encryptedText: string): string {
     const parts = encryptedText.split(":");
-    if (parts.length < 2) {
-      throw new Error("Invalid encrypted format");
+    if (parts.length < 3) {
+      throw new Error("Invalid encrypted format: missing authentication tag");
     }
-    const ivHex = parts.shift()!;
-    const encrypted = parts.join(":");
+    const ivHex = parts[0];
+    const encrypted = parts[1];
+    const tagHex = parts[2];
     
-    if (!/^[a-f0-9]+$/i.test(ivHex) || !/^[a-f0-9]+$/i.test(encrypted)) {
+    if (!/^[a-f0-9]+$/i.test(ivHex) || !/^[a-f0-9]+$/i.test(encrypted) || !/^[a-f0-9]+$/i.test(tagHex)) {
       throw new Error("Invalid encrypted format: non-hex characters");
     }
     
     const iv = Buffer.from(ivHex, "hex");
-    if (iv.length !== 16) {
-      throw new Error("Invalid encrypted format: incorrect IV length");
+    if (iv.length !== 12) {
+      throw new Error("Invalid encrypted format: incorrect IV length for GCM");
     }
 
-    const decipher = crypto.createDecipheriv("aes-256-cbc", this.encryptionKey, iv);
+    const tag = Buffer.from(tagHex, "hex");
+    if (tag.length !== 16) {
+      throw new Error("Invalid encrypted format: incorrect auth tag length");
+    }
+
+    const decipher = crypto.createDecipheriv("aes-256-gcm", this.encryptionKey, iv);
+    decipher.setAuthTag(tag);
     let decrypted = decipher.update(encrypted, "hex", "utf8");
     decrypted += decipher.final("utf8");
     return decrypted;

@@ -107,3 +107,23 @@ test("getPlaceholderRegex does not match random text", () => {
   assert.ok(!regex.test("hello world"));
   assert.ok(!regex.test("__PS_EMAIL__"));
 });
+
+test("different categories produce different placeholders for same original", () => {
+  const session = new PlaceholderSession();
+  const p1 = session.getOrCreatePlaceholder("shared-secret", "EMAIL");
+  const p2 = session.getOrCreatePlaceholder("shared-secret", "PHONE");
+  assert.notEqual(p1, p2, "Same original value with different categories should produce unique placeholders");
+  
+  assert.equal(session.resolve(p1), "shared-secret");
+  assert.equal(session.resolve(p2), "shared-secret");
+});
+
+test("custom prefix with regex special characters matches literally", () => {
+  const session = new PlaceholderSession({ prefix: "__PS+__" });
+  const p = session.getOrCreatePlaceholder("secret", "EMAIL");
+  assert.ok(p.startsWith("__PS+__EMAIL_"));
+
+  const regex = getPlaceholderRegex(session.prefix);
+  assert.ok(regex.test(p), "Regex should match the custom prefix placeholder");
+  assert.ok(!regex.test("__PS_EMAIL_a1b2c3d4e5f6__"), "Regex should not match default prefix when configured with custom prefix");
+});
