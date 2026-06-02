@@ -183,6 +183,83 @@ test("PII split across sliding window boundary is still redacted", async () => {
     "email spanning window boundary should be redacted");
 });
 
+test("preserve event names when flushing buffered SSE text", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const eventLine = "event: response.output_text.delta\n";
+  const inputLine = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [eventLine + inputLine + doneLine]);
+
+  // Output must include the custom event name
+  assert.ok(output.includes("event: response.output_text.delta"), "should preserve event line");
+});
+
+test("do not leak custom event name to subsequent default message events on flush", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const eventLine = "event: response.output_text.delta\n";
+  const inputLine1 = `data: {"choices":[{"delta":{"content":"abcdefghij"}}]}\n\n`;
+  const inputLine2 = `data: {"choices":[{"delta":{"content":"klmnopqrst"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [eventLine + inputLine1 + inputLine2 + doneLine]);
+
+  const occurrences = (output.match(/event: response.output_text.delta/g) || []).length;
+  assert.strictEqual(occurrences, 1, "custom event name should only appear once and not leak to the flushed chunk of the default message");
+});
+
+test("insert an SSE event separator before flushed chunks", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const inputLine = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [inputLine + doneLine]);
+
+  // Output must contain the payload and [DONE] separated by double newlines to form separate SSE events
+  assert.ok(output.includes("\n\ndata: [DONE]"), "should separate flushed chunk and [DONE] event");
+});
+
+test("reset event line on empty line message boundary", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const eventLine = "event: response.output_text.delta\n";
+  const inputLine = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
+  const defaultLine = `data: {"choices":[{"delta":{"content":"uvwxyz"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [eventLine + inputLine, defaultLine + doneLine]);
+
+  // The defaultLine is preceded by a blank line (\n\n), so it is a separate event.
+  // The event name "response.output_text.delta" must NOT leak into the second event.
+  const parts = output.split("\n\n");
+  
+  // parts[0] should have the custom event name
+  assert.ok(parts[0].includes("event: response.output_text.delta"), "first block should have custom event name");
+  
+  // parts[1] should NOT have the custom event name
+  assert.ok(!parts[1].includes("event: response.output_text.delta"), "second block should reset event name and not leak it");
+});
+
+test("sanitize compressed IPv6 addresses", async () => {
+  const transform = createPiiSseTransform();
+  
+  const inputLoopback = `data: {"choices":[{"delta":{"content":"server address is ::1"}}]}\n\n`;
+  const inputCompressed = `data: {"choices":[{"delta":{"content":"server address is 2001:db8::1"}}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const outputLoopback = await testTransform(transform, [inputLoopback + doneLine]);
+  assert.ok(!outputLoopback.includes("::1"), "compressed loopback IPv6 should be redacted");
+  assert.ok(outputLoopback.includes("[IP_REDACTED]"), "redaction marker should be present for loopback IPv6");
+
+  const transform2 = createPiiSseTransform();
+  const outputCompressed = await testTransform(transform2, [inputCompressed + doneLine]);
+  assert.ok(!outputCompressed.includes("2001:db8::1"), "compressed IPv6 should be redacted");
+  assert.ok(outputCompressed.includes("[IP_REDACTED]"), "redaction marker should be present for compressed IPv6");
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;
