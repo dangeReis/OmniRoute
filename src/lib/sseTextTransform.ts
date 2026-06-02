@@ -63,6 +63,10 @@ export function createSseTextTransform(
       if (trimmed === "") {
         currentEventLine = "";
       }
+      if (pendingEventLine) {
+        controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+        pendingEventLine = "";
+      }
       controller.enqueue(encoder.encode(line + "\n"));
       return;
     }
@@ -182,14 +186,15 @@ export function createSseTextTransform(
             throw err;
           }
           if (err instanceof SyntaxError) {
-            if (pendingEventLine) {
-              controller.enqueue(encoder.encode(pendingEventLine + "\n"));
-              pendingEventLine = "";
-            }
             // JSON parsing failed. Check if it looks like JSON that failed to parse.
             if (trimmedSegment.startsWith("{") || trimmedSegment.startsWith("[")) {
               console.warn("[SSE-TRANSFORM] Dropping malformed JSON chunk to prevent syntax injection:", trimmedSegment.slice(0, 100));
+              pendingEventLine = "";
             } else {
+              if (pendingEventLine) {
+                controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+                pendingEventLine = "";
+              }
               // Treat segment as raw text delta (fail-open)
               const processed = processor(segment, "content");
               controller.enqueue(encoder.encode(prefix + processed + "\n"));

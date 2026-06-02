@@ -387,6 +387,15 @@ test("stop signal event name is enqueued correctly without misattribution or los
   );
 });
 
+test("verify keep-alive event preservation (no-data event)", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const eventLine = "event: keep-alive\n\n";
+  const output = await testTransform(transform, [eventLine]);
+
+  assert.ok(output.includes("event: keep-alive"), "keep-alive event should be preserved");
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;
