@@ -156,3 +156,41 @@ test("skips expired mappings on WAL restore", async () => {
     rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("skips invalid createdAt mappings on WAL restore and compaction", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "omniroute-wal-test-"));
+  const filePath = join(tmpDir, "test.wal");
+  const key = randomBytes(32);
+  
+  try {
+    const wal = new PrivacyShieldWAL(filePath, key);
+    
+    // Add one invalid mapping (NaN createdAt)
+    await wal.appendMapping("default", "__PS_EMAIL_invalid1b2c3d4__", "invalid@email.com", "EMAIL", NaN);
+    
+    // Add one valid mapping
+    const now = Date.now();
+    await wal.appendMapping("default", "__PS_EMAIL_valid1b2c3d4__", "valid@email.com", "EMAIL", now);
+    
+    // Verify restore skips invalid
+    const manager = new SessionManager();
+    await wal.restore(manager);
+    
+    const session = manager.getOrCreate("default");
+    assert.equal(session.resolve("__PS_EMAIL_invalid1b2c3d4__"), undefined, "Invalid createdAt mapping should be skipped on restore");
+    assert.equal(session.resolve("__PS_EMAIL_valid1b2c3d4__"), "valid@email.com", "Valid mapping should be loaded");
+    
+    // Verify compaction skips invalid
+    await wal.compact();
+    
+    const manager2 = new SessionManager();
+    const wal2 = new PrivacyShieldWAL(filePath, key);
+    await wal2.restore(manager2);
+    
+    const session2 = manager2.getOrCreate("default");
+    assert.equal(session2.resolve("__PS_EMAIL_invalid1b2c3d4__"), undefined, "Invalid createdAt mapping should be skipped after compaction");
+    assert.equal(session2.resolve("__PS_EMAIL_valid1b2c3d4__"), "valid@email.com", "Valid mapping should still be loaded after compaction");
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

@@ -122,3 +122,31 @@ test("createRestoringTransform forwards options to StreamingRestorer", async () 
   // Newline should be escaped as \n
   assert.ok(output.includes("john\\nsecret@example.com"), "newline should be JSON-escaped in the output");
 });
+
+test("createRestoringTransform supports string chunks", async () => {
+  const { createRestoringTransform } = await import("../../src/lib/privacyShield/streamingRestorer");
+  const session = new PlaceholderSession();
+  const p = session.getOrCreatePlaceholder("john@example.com", "EMAIL");
+  
+  const transform = createRestoringTransform(session);
+  const writer = transform.writable.getWriter();
+  const reader = transform.readable.getReader();
+  
+  const writePromise = (async () => {
+    // Write as string directly
+    await writer.write(`john's email is ${p}`);
+    await writer.close();
+  })();
+  
+  const chunks: any[] = [];
+  let res = await reader.read();
+  while (!res.done) {
+    chunks.push(res.value);
+    res = await reader.read();
+  }
+  
+  await writePromise;
+  
+  const output = chunks.map(chunk => typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk)).join("");
+  assert.ok(output.includes("john@example.com"), "should restore from string chunk");
+});

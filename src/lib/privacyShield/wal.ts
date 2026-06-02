@@ -66,6 +66,9 @@ export class PrivacyShieldWAL {
         try {
           const decrypted = this.decrypt(line);
           const { sessionId, placeholder, original, category, createdAt } = JSON.parse(decrypted);
+          if (typeof createdAt !== "number" || isNaN(createdAt)) {
+            continue;
+          }
           // Expiry defaults to 1 hour after creation if not specified
           const expiresAt = createdAt + 3600 * 1000;
           if (expiresAt < Date.now()) {
@@ -101,6 +104,9 @@ export class PrivacyShieldWAL {
         try {
           const decrypted = this.decrypt(line);
           const record = JSON.parse(decrypted);
+          if (typeof record.createdAt !== "number" || isNaN(record.createdAt)) {
+            continue;
+          }
           // Only retain records that have not expired (TTL of 1 hour)
           if (record.createdAt + 3600 * 1000 >= now) {
             uniqueMappings.set(record.placeholder, record);

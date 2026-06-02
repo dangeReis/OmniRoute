@@ -126,7 +126,7 @@ export function createRestoringTransform(
 
   return new TransformStream({
     transform(chunk, controller) {
-      const text = decoder.decode(chunk, { stream: true });
+      const text = typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
       if (text) {
         const restored = restorer.push(text);
         if (restored) {

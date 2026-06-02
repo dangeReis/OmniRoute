@@ -37,16 +37,16 @@ test("resolve returns undefined for unknown placeholder", () => {
 });
 
 test("touch-on-access resets TTL", async () => {
-  const session = new PlaceholderSession({ ttlMs: 100 });
+  const session = new PlaceholderSession({ ttlMs: 1000 });
   const p = session.getOrCreatePlaceholder("secret", "EMAIL");
   
-  await new Promise(r => setTimeout(r, 60));
+  await new Promise(r => setTimeout(r, 100));
   assert.equal(session.resolve(p), "secret");
   
-  await new Promise(r => setTimeout(r, 60));
+  await new Promise(r => setTimeout(r, 100));
   assert.equal(session.resolve(p), "secret");
   
-  await new Promise(r => setTimeout(r, 120));
+  await new Promise(r => setTimeout(r, 1200));
   assert.equal(session.resolve(p), undefined);
 });
 

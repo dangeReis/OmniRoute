@@ -93,14 +93,12 @@ export function redactText(
 
   const selected: typeof candidates = [];
   for (const cand of candidates) {
-    const hasOverlap = selected.some((sel) => cand.start < sel.end && cand.end > sel.start);
+    const last = selected[selected.length - 1];
+    const hasOverlap = last && cand.start < last.end && cand.end > last.start;
     if (!hasOverlap) {
       selected.push(cand);
     }
   }
-
-  // Sort selected matches ascending by start position for reconstruction
-  selected.sort((a, b) => a.start - b.start);
 
   let redactedText = "";
   let currentOriginalPos = 0;
