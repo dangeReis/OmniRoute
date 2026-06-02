@@ -13,7 +13,11 @@ const originalEnv = process.env.PII_RESPONSE_SANITIZATION;
 process.env.PII_RESPONSE_SANITIZATION = "true";
 process.env.PII_TEST_BYPASS_MIN_WINDOW = "true";
 
-import { createPiiSseTransform } from "../../src/lib/streamingPiiTransform.ts";
+// Pre-initialize DB to run migrations on isolated DB first
+const coreDb = await import("../../src/lib/db/core.ts");
+coreDb.getDbInstance();
+
+const { createPiiSseTransform } = await import("../../src/lib/streamingPiiTransform.ts");
 
 async function testTransform(transform: TransformStream, inputChunks: string[]): Promise<string> {
   const writer = transform.writable.getWriter();
