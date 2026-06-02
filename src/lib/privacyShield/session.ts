@@ -13,7 +13,7 @@ export class PlaceholderSession {
   activeRequests: number = 0;
   private maxMappings: number;
   private ttlMs: number;
-  private prefix: string;
+  readonly prefix: string;
   private salt: string;
   private mappings = new Map<string, Mapping>(); // placeholder -> Mapping
   private originalToPlaceholder = new Map<string, string>(); // original -> placeholder

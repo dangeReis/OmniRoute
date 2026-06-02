@@ -42,8 +42,9 @@ export function redactText(
     pattern.regex.lastIndex = 0;
     let match: RegExpExecArray | null;
     
-    // Create a copy of regex to avoid modifying shared regex lastIndex unexpectedly
-    const regexCopy = new RegExp(pattern.regex.source, pattern.regex.flags);
+    // Create a copy of regex with global flag to avoid infinite loops and ensure all occurrences match
+    const flags = pattern.regex.flags.includes("g") ? pattern.regex.flags : pattern.regex.flags + "g";
+    const regexCopy = new RegExp(pattern.regex.source, flags);
     
     while ((match = regexCopy.exec(text)) !== null) {
       const matchText = match[0];

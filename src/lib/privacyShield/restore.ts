@@ -18,7 +18,7 @@ function getGlobalPlaceholderRegex(prefix: string = "__PS_"): RegExp {
 export function restoreText(text: string, session: PlaceholderSession): string {
   if (typeof text !== "string" || !text) return text;
   
-  const globalRegex = getGlobalPlaceholderRegex();
+  const globalRegex = getGlobalPlaceholderRegex(session.prefix);
   
   return text.replace(globalRegex, (match) => {
     let resolved = session.resolve(match);
