@@ -192,8 +192,8 @@ test("preserve event names when flushing buffered SSE text", async () => {
 
   const output = await testTransform(transform, [eventLine + inputLine + doneLine]);
 
-  // Output must include the custom event name
-  assert.ok(output.includes("event: response.output_text.delta"), "should preserve event line");
+  const occurrences = (output.match(/event: response\.output_text\.delta/g) || []).length;
+  assert.strictEqual(occurrences, 2, "flushed chunk should re-emit the custom event line");
 });
 
 test("do not leak custom event name to subsequent default message events on flush", async () => {

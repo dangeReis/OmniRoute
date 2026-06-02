@@ -136,10 +136,6 @@ test("PII Reproduction Tests", async (t) => {
 });
 
 test.after(() => {
-  try {
-    resetDbInstance();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  } catch (err) {
-    console.error("Cleanup failed:", err);
-  }
+  resetDbInstance();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
