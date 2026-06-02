@@ -148,11 +148,7 @@ test("no duplicate content when stream has [DONE] and normal close", async () =>
 });
 
 test("configurable windowSize is respected", async () => {
-  // We need to type the options manually in the test since the signature hasn't changed yet,
-  // or cast it. createPiiSseTransform doesn't take args yet, so passing an arg will be ignored
-  // until we change the signature. But in TypeScript it might error if we pass an arg.
-  // Wait, I will just cast it as any.
-  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+  const transform = createPiiSseTransform({ windowSize: 10 });
 
   // Send 20 chars of content
   const input = `data: {"choices":[{"delta":{"content":"abcdefghijklmnopqrst"}}]}\n\n`;
@@ -175,7 +171,7 @@ test("Gemini format PII redaction", async () => {
 });
 
 test("PII split across sliding window boundary is still redacted", async () => {
-  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+  const transform = createPiiSseTransform({ windowSize: 10 });
 
   // Email is 20 chars, window is 10 — the email straddles the boundary
   const chunk1 = `data: {"choices":[{"delta":{"content":"contact user@"}}]}\n\n`;

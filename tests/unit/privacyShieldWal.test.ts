@@ -49,7 +49,7 @@ test("fail-closed: refuses to init without encryption key", () => {
   }
 });
 
-test("reject decryption with wrong key", async () => {
+test("skips decryption failures with wrong key and imports nothing", async () => {
   const tmpDir = mkdtempSync(join(tmpdir(), "omniroute-wal-test-"));
   const filePath = join(tmpDir, "test.wal");
   const keyA = randomBytes(32);
@@ -61,9 +61,37 @@ test("reject decryption with wrong key", async () => {
     
     const readerWal = new PrivacyShieldWAL(filePath, keyB);
     const manager = new SessionManager();
-    await assert.rejects(async () => {
-      await readerWal.restore(manager);
-    });
+    // Should complete successfully by skipping the line rather than throwing
+    await readerWal.restore(manager);
+    const defaultSession = manager.getOrCreate("default");
+    assert.equal(defaultSession.resolve("__PS_EMAIL_a1b2c3d4e5f6__"), undefined);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("skips corrupted lines and restores valid ones", async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), "omniroute-wal-test-"));
+  const filePath = join(tmpDir, "test.wal");
+  const key = randomBytes(32);
+  
+  try {
+    const wal = new PrivacyShieldWAL(filePath, key);
+    const now = Date.now();
+    await wal.appendMapping("default", "__PS_EMAIL_a1b2c3d4e5f6__", "valid@email.com", "EMAIL", now);
+    
+    // Manually append a corrupt non-decryptable line
+    const { appendFileSync } = await import("node:fs");
+    appendFileSync(filePath, "corrupted-line-that-cannot-be-decrypted\n");
+    
+    await wal.appendMapping("default", "__PS_EMAIL_f6e5d4c3b2a1__", "another@email.com", "EMAIL", now);
+    
+    const manager = new SessionManager();
+    await wal.restore(manager);
+    
+    const session = manager.getOrCreate("default");
+    assert.equal(session.resolve("__PS_EMAIL_a1b2c3d4e5f6__"), "valid@email.com");
+    assert.equal(session.resolve("__PS_EMAIL_f6e5d4c3b2a1__"), "another@email.com");
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }

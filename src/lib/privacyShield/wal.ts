@@ -61,8 +61,8 @@ export class PrivacyShieldWAL {
         const targetSessionId = sessionId || "default";
         const session = manager.getOrCreate(targetSessionId);
         session.addMapping(placeholder, original, category, expiresAt);
-      } catch (err) {
-        throw err;
+      } catch (err: any) {
+        console.warn("[PrivacyShieldWAL] Skipping unreadable WAL line:", err.message);
       }
     }
   }
@@ -90,8 +90,8 @@ export class PrivacyShieldWAL {
         if (record.createdAt + 3600 * 1000 >= now) {
           uniqueMappings.set(record.placeholder, record);
         }
-      } catch (err) {
-        throw err;
+      } catch (err: any) {
+        console.warn("[PrivacyShieldWAL] Skipping unreadable WAL line during compaction:", err.message);
       }
     }
 

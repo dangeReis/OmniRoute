@@ -10,7 +10,6 @@ export interface Mapping {
 }
 
 export class PlaceholderSession {
-  activeRequests: number = 0;
   private maxMappings: number;
   private ttlMs: number;
   readonly prefix: string;

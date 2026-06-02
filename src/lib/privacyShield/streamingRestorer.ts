@@ -8,6 +8,7 @@ export class StreamingRestorer {
   private buffer: string = "";
   private partialRegex: RegExp;
   private placeholderRegex: RegExp;
+  private globalPlaceholderRegex: RegExp;
   private maxPartialLength: number;
 
   constructor(session: PlaceholderSession, options?: { escapeForJson?: boolean }) {
@@ -43,6 +44,7 @@ export class StreamingRestorer {
     );
 
     this.placeholderRegex = getPlaceholderRegex(prefix);
+    this.globalPlaceholderRegex = new RegExp(this.placeholderRegex.source, "g");
     this.maxPartialLength = prefix.length + 128; // dynamic safety valve limit based on placeholder contract
   }
 
@@ -86,10 +88,9 @@ export class StreamingRestorer {
   private restoreWithJsonEscape(text: string): string {
     if (typeof text !== "string" || !text) return text;
     
-    const baseRegex = getPlaceholderRegex(this.session.prefix);
-    const globalRegex = new RegExp(baseRegex.source, "g");
+    this.globalPlaceholderRegex.lastIndex = 0;
     
-    return text.replace(globalRegex, (match) => {
+    return text.replace(this.globalPlaceholderRegex, (match) => {
       let resolved = this.session.resolve(match);
       if (resolved !== undefined) {
         if (this.escapeForJson) {
