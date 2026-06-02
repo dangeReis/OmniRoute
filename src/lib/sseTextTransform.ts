@@ -216,6 +216,9 @@ export function createSseTextTransform(
     } else {
       // Non-data line, pass through (e.g. event: content_block_delta)
       if (line.startsWith("event:")) {
+        if (pendingEventLine) {
+          controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+        }
         currentEventLine = line;
         pendingEventLine = line;
       } else {

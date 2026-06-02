@@ -414,6 +414,16 @@ test("verify trailing event line is flushed on stream close", async () => {
   assert.ok(output.includes("event: some-trailing-event"), "trailing event line should be flushed on stream close");
 });
 
+test("verify consecutive event lines without intervening data are both preserved", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const inputLines = "event: first-event\nevent: second-event\ndata: some-data\n\n";
+  const output = await testTransform(transform, [inputLines]);
+
+  assert.ok(output.includes("event: first-event"), "first event should be preserved");
+  assert.ok(output.includes("event: second-event"), "second event should be preserved");
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;
