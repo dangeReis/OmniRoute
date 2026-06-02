@@ -60,19 +60,14 @@ export class PlaceholderSession {
       if (mapping) {
         mapping.lastTouched = ++this.sequence;
         mapping.expiresAt = Date.now() + this.ttlMs;
+        this.mappings.delete(existingPlaceholder);
+        this.mappings.set(existingPlaceholder, mapping);
         return existingPlaceholder;
       }
     }
 
     if (this.mappings.size >= this.maxMappings) {
-      let oldestPlaceholder: string | null = null;
-      let oldestTime = Infinity;
-      for (const [placeholder, mapping] of this.mappings.entries()) {
-        if (mapping.lastTouched < oldestTime) {
-          oldestTime = mapping.lastTouched;
-          oldestPlaceholder = placeholder;
-        }
-      }
+      const oldestPlaceholder = this.mappings.keys().next().value;
       if (oldestPlaceholder) {
         const oldestMapping = this.mappings.get(oldestPlaceholder);
         if (oldestMapping) {
@@ -117,6 +112,8 @@ export class PlaceholderSession {
 
     mapping.lastTouched = ++this.sequence;
     mapping.expiresAt = Date.now() + this.ttlMs;
+    this.mappings.delete(placeholder);
+    this.mappings.set(placeholder, mapping);
     return mapping.original;
   }
 

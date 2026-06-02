@@ -98,8 +98,10 @@ export class StreamingRestorer {
         return resolved;
       }
       
-      if (!match.startsWith("__") && match.startsWith("PS_")) {
-        resolved = this.session.resolve("__" + match);
+      const leadingUnderscores = this.session.prefix.match(/^_+/)?.[0] || "";
+      if (leadingUnderscores && !match.startsWith(leadingUnderscores)) {
+        const canonical = leadingUnderscores + match.replace(/^_+/, "");
+        resolved = this.session.resolve(canonical);
         if (resolved !== undefined) {
           if (this.escapeForJson) {
             return JSON.stringify(resolved).slice(1, -1);

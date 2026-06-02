@@ -27,8 +27,10 @@ export function restoreText(text: string, session: PlaceholderSession): string {
     }
     
     // Support bare-prefix fallback (e.g. PS_EMAIL_... -> __PS_EMAIL_...)
-    if (!match.startsWith("__") && match.startsWith("PS_")) {
-      resolved = session.resolve("__" + match);
+    const leadingUnderscores = session.prefix.match(/^_+/)?.[0] || "";
+    if (leadingUnderscores && !match.startsWith(leadingUnderscores)) {
+      const canonical = leadingUnderscores + match.replace(/^_+/, "");
+      resolved = session.resolve(canonical);
       if (resolved !== undefined) {
         return resolved;
       }

@@ -23,6 +23,7 @@ import {
   type CallLogArtifact,
 } from "../usage/callLogArtifacts";
 import { migrateLegacyEncryptedString } from "./encryption";
+import { resetAllDbModuleState } from "./stateReset";
 import { invalidateDbCache } from "./readCache";
 
 type SqliteDatabase = SqliteAdapter;
@@ -1420,6 +1421,7 @@ export function closeDbInstance(options?: { checkpointMode?: CheckpointMode | nu
  */
 export function resetDbInstance() {
   closeDbInstance();
+  resetAllDbModuleState();
 }
 
 // ──────────────── Runtime Driver Info ────────────────

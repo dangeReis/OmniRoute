@@ -38,7 +38,7 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   {
     name: "API_KEY",
     category: "API_KEY",
-    regex: /\b(?:sk|pk)[_-][a-zA-Z0-9_]{20,}\b/g,
+    regex: /\b(?:sk|pk)[_-][a-zA-Z0-9_-]{20,}\b/g,
   },
   {
     name: "SSN",

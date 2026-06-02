@@ -30,7 +30,12 @@ test("EMAIL pattern", () => {
 
 test("API_KEY pattern — rejects false positives", () => {
   testPattern("API_KEY",
-    ["sk-abcdefghijklmnopqrstuvwxyz1234", "pk_live_abcdefghijklmnopqrstuvwx"],
+    [
+      "sk-abcdefghijklmnopqrstuvwxyz1234",
+      "pk_live_abcdefghijklmnopqrstuvwx",
+      "sk-proj-abcdefghijklmnopqrstuvwxyz1234",
+      "sk-svcacct-abcdefghijklmnopqrstuvwxyz1234"
+    ],
     ["token_refresh_handler_abc123", "api_key_rotation_manager", "my_token_value"]);
 });
 
