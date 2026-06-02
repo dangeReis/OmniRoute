@@ -405,6 +405,15 @@ test("verify event line flushed before other non-data lines (e.g. id, retry)", a
   assert.ok(output.includes("event: foo\nid: 123\ndata: bar"), "event line must be flushed before non-data lines like id");
 });
 
+test("verify trailing event line is flushed on stream close", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const inputLines = "event: some-trailing-event\n";
+  const output = await testTransform(transform, [inputLines]);
+
+  assert.ok(output.includes("event: some-trailing-event"), "trailing event line should be flushed on stream close");
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;

@@ -263,6 +263,10 @@ export function createSseTextTransform(
         if (remaining) {
           handleLine(remaining, controller);
         }
+        if (pendingEventLine) {
+          controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+          pendingEventLine = "";
+        }
         if (onFlush && !flushed) {
           const flushedValue = onFlush(lastJson, isJsonStream, lastContentJson);
           if (flushedValue) {
