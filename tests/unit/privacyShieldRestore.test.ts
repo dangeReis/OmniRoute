@@ -100,7 +100,7 @@ test("redactText handles custom patterns without global flag", () => {
   const result = redactText(input, patterns, [], session);
   
   // Verify that all occurrences are redacted and we did not hang/infinite-loop
-  const occurrences = result.text.match(/__PS_SECRET_[a-f0-9]{12}__/g);
+  const occurrences = result.text.match(/__PS_SECRET_[a-f0-9]{16}__/g);
   assert.ok(occurrences);
   assert.equal(occurrences.length, 2);
 });

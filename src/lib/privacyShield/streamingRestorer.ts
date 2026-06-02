@@ -15,10 +15,10 @@ export class StreamingRestorer {
     this.escapeForJson = options?.escapeForJson ?? false;
 
     const prefix = this.session.prefix;
-    const core = prefix.replace(/^_+|_+$/g, "");
+    const core = prefix.replace(/^_+/, "");
     const escapedCore = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // Dynamically build prefix partial parts, e.g. for "PS" -> "P|PS"
+    // Dynamically build prefix partial parts, e.g. for "PS_" -> "P|PS|PS_"
     const prefixPartParts = [];
     for (let i = 1; i <= core.length; i++) {
       prefixPartParts.push(core.slice(0, i));
@@ -31,13 +31,13 @@ export class StreamingRestorer {
       `(?:` +
         `_*${prefixPart}?` +
         `|` +
-        `_*${escapedCore}_[A-Z0-9_]*` +
+        `_*${escapedCore}[A-Z0-9_]*` +
         `|` +
-        `_*${escapedCore}_[A-Z0-9_]+_[a-f0-9]{0,12}` +
+        `_*${escapedCore}[A-Z0-9_]+_[a-f0-9]{0,16}` +
         `|` +
-        `_*${escapedCore}_[A-Z0-9_]+_[a-f0-9]{12}_\\d*` +
+        `_*${escapedCore}[A-Z0-9_]+_[a-f0-9]{12,16}_\\d*` +
         `|` +
-        `_*${escapedCore}_[A-Z0-9_]+_[a-f0-9]{12}(?:_\\d+)?_?` +
+        `_*${escapedCore}[A-Z0-9_]+_[a-f0-9]{12,16}(?:_\\d+)?_?` +
       `)$`,
       "i"
     );

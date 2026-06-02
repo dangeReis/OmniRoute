@@ -20,7 +20,7 @@ test("different originals produce different placeholders", () => {
 test("placeholder matches expected format", () => {
   const session = new PlaceholderSession();
   const p = session.getOrCreatePlaceholder("test@email.com", "EMAIL");
-  const regex = /__PS_EMAIL_[a-f0-9]{12}(?:_\d+)?__/;
+  const regex = /__PS_EMAIL_[a-f0-9]{16}(?:_\d+)?__/;
   assert.ok(regex.test(p), `placeholder '${p}' did not match format`);
 });
 

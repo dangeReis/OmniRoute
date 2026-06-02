@@ -48,7 +48,7 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   {
     name: "CREDIT_CARD",
     category: "CREDIT_CARD",
-    regex: /\b(?:\d[ -\s]?){12,19}\d\b/g,
+    regex: /\b(?:\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}|\d{4}[-\s]?\d{6}[-\s]?\d{5}|\d{12,19})\b/g,
     postFilter: luhnCheck,
   },
   {
@@ -64,13 +64,7 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   {
     name: "IPV4",
     category: "IPV4",
-    regex: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g,
-    postFilter: (match) => {
-      return match.split(".").every((octet) => {
-        const n = parseInt(octet, 10);
-        return n >= 0 && n <= 255;
-      });
-    },
+    regex: /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g,
   },
   {
     name: "AWS_KEY",
@@ -80,7 +74,7 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   {
     name: "GITHUB_TOKEN",
     category: "GITHUB_TOKEN",
-    regex: /\bghp_[a-zA-Z0-9]{36,40}\b/g,
+    regex: /\bgh[oprs]_[a-zA-Z0-9]{36,251}\b/g,
   },
   {
     name: "UUID",
@@ -95,7 +89,7 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   {
     name: "PRIVATE_KEY",
     category: "PRIVATE_KEY",
-    regex: /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/g,
+    regex: /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----[a-zA-Z0-9/+\s\n\r=]+?-----END (?:[A-Z]+ )?PRIVATE KEY-----/g,
   },
   {
     name: "BEARER_TOKEN",

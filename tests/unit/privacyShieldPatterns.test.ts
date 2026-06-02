@@ -95,7 +95,10 @@ test("JWT pattern", () => {
 
 test("PRIVATE_KEY pattern", () => {
   testPattern("PRIVATE_KEY",
-    ["-----BEGIN RSA PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----"],
+    [
+      "-----BEGIN RSA PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDp7\n-----END RSA PRIVATE KEY-----",
+      "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDp7\n-----END PRIVATE KEY-----"
+    ],
     ["-----BEGIN PUBLIC KEY-----", "private-key"]);
 });
 

@@ -78,7 +78,7 @@ export class PlaceholderSession {
     }
 
     const normalizedCategory = category.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
-    const hash = crypto.createHmac("sha256", this.salt).update(original).digest("hex").slice(0, 12);
+    const hash = crypto.createHmac("sha256", this.salt).update(original).digest("hex").slice(0, 16);
     let placeholder = `${this.prefix}${normalizedCategory}_${hash}__`;
     let suffix = 0;
     while (this.mappings.has(placeholder) && this.mappings.get(placeholder)!.original !== original) {
@@ -165,7 +165,7 @@ export class SessionManager {
 }
 
 export function getPlaceholderRegex(prefix: string = "__PS_"): RegExp {
-  const core = prefix.replace(/^_+|_+$/g, "");
+  const core = prefix.replace(/^_+/, "");
   const escapedCore = core.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`_*${escapedCore}_[A-Z0-9_]+?_[a-f0-9]{12}(?:_\\d+)?__`);
+  return new RegExp(`_*${escapedCore}[A-Z0-9_]+?_[a-f0-9]{12,16}(?:_\\d+)?__`);
 }

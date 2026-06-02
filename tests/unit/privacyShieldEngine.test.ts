@@ -78,7 +78,7 @@ test("same original gets same placeholder", () => {
   const input = "my email is john@example.com, and again: john@example.com";
   
   const result = redactText(input, emailPattern, [], session);
-  const occurrences = result.text.match(/__PS_EMAIL_[a-f0-9]{12}__/g);
+  const occurrences = result.text.match(/__PS_EMAIL_[a-f0-9]{16}__/g);
   assert.ok(occurrences);
   assert.equal(occurrences.length, 2);
   assert.equal(occurrences[0], occurrences[1], "both placeholders should be identical");
