@@ -107,6 +107,18 @@ export class PlaceholderSession {
     return mapping.original;
   }
 
+  addMapping(placeholder: string, original: string, category: string, expiresAt: number): void {
+    const mapping: Mapping = {
+      original,
+      placeholder,
+      category,
+      lastTouched: ++this.sequence,
+      expiresAt,
+    };
+    this.mappings.set(placeholder, mapping);
+    this.originalToPlaceholder.set(original, placeholder);
+  }
+
   get size(): number {
     this.cleanExpired();
     return this.mappings.size;
@@ -144,5 +156,5 @@ export class SessionManager {
 
 export function getPlaceholderRegex(prefix: string = "__PS_"): RegExp {
   const core = prefix.replace(/^_+|_+$/g, "");
-  return new RegExp(`_*${core}_[A-Z0-9]+_[a-f0-9]{12}(?:_\\d+)?__`);
+  return new RegExp(`_*${core}_[A-Z0-9_]+_[a-f0-9]{12}(?:_\\d+)?__`);
 }
