@@ -360,6 +360,33 @@ test("two consecutive events with different names each get their own event name 
   assert.ok(output.includes("event: event.type.alpha"), "event-A name should appear in output");
   assert.ok(output.includes("event: event.type.beta"), "event-B name should appear in output");
 });
+
+test("stop signal event name is enqueued correctly without misattribution or loss", async () => {
+  const transform = (createPiiSseTransform as any)({ windowSize: 10 });
+
+  const contentEventLine = "event: response.output_text.delta\n";
+  const contentData = `data: {"choices":[{"delta":{"content":"abcdefghijklmno"}}]}\n\n`;
+
+  const stopEventLine = "event: response.done\n";
+  const stopData = `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n`;
+  const doneLine = `data: [DONE]\n\n`;
+
+  const output = await testTransform(transform, [
+    contentEventLine + contentData,
+    stopEventLine + stopData + doneLine,
+  ]);
+
+  // The stop signal itself should be preceded by its own event name "response.done"
+  const stopSignalIndex = output.indexOf('"finish_reason":"stop"');
+  assert.ok(stopSignalIndex !== -1, "stop signal should be present in output");
+  const sectionBeforeStop = output.slice(0, stopSignalIndex);
+  const lastEventBeforeStop = sectionBeforeStop.slice(sectionBeforeStop.lastIndexOf("event:"));
+  assert.ok(
+    lastEventBeforeStop.includes("event: response.done"),
+    "stop signal payload must be immediately preceded by event: response.done"
+  );
+});
+
 test.after(async () => {
   if (originalEnv !== undefined) {
     process.env.PII_RESPONSE_SANITIZATION = originalEnv;

@@ -54,6 +54,7 @@ export function createSseTextTransform(
   let errored = false;
   let currentEventLine = "";
   let lastEventLine = "";
+  let pendingEventLine = "";
 
   const handleLine = (line: string, controller: TransformStreamDefaultController) => {
     const trimmed = line.trim();
@@ -82,6 +83,10 @@ export function createSseTextTransform(
             controller.enqueue(encoder.encode(prefix + payload + "\n\n"));
           }
           flushed = true;
+        }
+        if (pendingEventLine) {
+          controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+          pendingEventLine = "";
         }
         controller.enqueue(encoder.encode(line + "\n"));
         return;
@@ -167,12 +172,20 @@ export function createSseTextTransform(
           }
 
           lastJson = json;
+          if (pendingEventLine) {
+            controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+            pendingEventLine = "";
+          }
           controller.enqueue(encoder.encode(prefix + JSON.stringify(json) + "\n"));
         } catch (err: any) {
           if (err?.message?.startsWith("[PII]")) {
             throw err;
           }
           if (err instanceof SyntaxError) {
+            if (pendingEventLine) {
+              controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+              pendingEventLine = "";
+            }
             // JSON parsing failed. Check if it looks like JSON that failed to parse.
             if (trimmedSegment.startsWith("{") || trimmedSegment.startsWith("[")) {
               console.warn("[SSE-TRANSFORM] Dropping malformed JSON chunk to prevent syntax injection:", trimmedSegment.slice(0, 100));
@@ -189,14 +202,20 @@ export function createSseTextTransform(
         // Starts with data: but not JSON, process as raw text
         lastEventLine = currentEventLine;
         const processed = processor(segment, "content");
+        if (pendingEventLine) {
+          controller.enqueue(encoder.encode(pendingEventLine + "\n"));
+          pendingEventLine = "";
+        }
         controller.enqueue(encoder.encode(prefix + processed + "\n"));
       }
     } else {
       // Non-data line, pass through (e.g. event: content_block_delta)
       if (line.startsWith("event:")) {
         currentEventLine = line;
+        pendingEventLine = line;
+      } else {
+        controller.enqueue(encoder.encode(line + "\n"));
       }
-      controller.enqueue(encoder.encode(line + "\n"));
     }
   };
 
