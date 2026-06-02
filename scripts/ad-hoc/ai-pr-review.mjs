@@ -1,17 +1,17 @@
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 
 async function getDiff() {
   const baseBranch = process.env.GITHUB_BASE_REF || "main";
   try {
     // Ensure we have fetched the base branch
-    execSync(`git fetch origin ${baseBranch}`, { stdio: "ignore" });
-    const diff = execSync(`git diff origin/${baseBranch}...HEAD`, { encoding: "utf8" });
+    execFileSync("git", ["fetch", "origin", baseBranch], { stdio: "ignore" });
+    const diff = execFileSync("git", ["diff", `origin/${baseBranch}...HEAD`], { encoding: "utf8" });
     return diff;
   } catch (err) {
     console.warn("Could not get git diff using origin. Trying HEAD~1...", err.message);
     try {
-      return execSync("git diff HEAD~1", { encoding: "utf8" });
+      return execFileSync("git", ["diff", "HEAD~1"], { encoding: "utf8" });
     } catch (fallbackErr) {
       console.error("Failed to get git diff:", fallbackErr.message);
       return "";
@@ -166,11 +166,20 @@ async function run() {
   fs.writeFileSync("ai_review_comment.md", reviewMarkdown);
   console.log("Review completed! Comment saved to ai_review_comment.md");
 
-  // Post comment to PR if GITHUB_TOKEN and GITHUB_EVENT_PATH are present
-  const prNumber = process.env.GITHUB_EVENT_NAME === "pull_request" ? process.env.GITHUB_PR_NUMBER : null;
+  // Post comment to PR if GITHUB_TOKEN and PR number are present
+  const prNumber = process.env.GITHUB_PR_NUMBER || (() => {
+    if (process.env.GITHUB_EVENT_PATH) {
+      try {
+        const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+        return event.pull_request?.number?.toString();
+      } catch {}
+    }
+    return null;
+  })();
+
   if (process.env.GITHUB_TOKEN && prNumber) {
     try {
-      execSync(`gh pr comment ${prNumber} -F ai_review_comment.md`, { stdio: "inherit" });
+      execFileSync("gh", ["pr", "comment", prNumber, "-F", "ai_review_comment.md"], { stdio: "inherit" });
       console.log(`Review posted successfully to PR #${prNumber}`);
     } catch (postErr) {
       console.error("Failed to post comment to PR via GitHub CLI:", postErr.message);
