@@ -143,6 +143,15 @@ describe("featureFlags DB module", () => {
     setFeatureFlagOverride("REQUIRE_API_KEY", "false");
     assert.strictEqual(getFeatureFlagOverride("REQUIRE_API_KEY"), "false");
   });
+
+  it("invalidates cache on resetDbInstance", () => {
+    setFeatureFlagOverride("REQUIRE_API_KEY", "true");
+    assert.strictEqual(getFeatureFlagOverride("REQUIRE_API_KEY"), "true");
+    
+    resetDb();
+    
+    assert.strictEqual(getFeatureFlagOverride("REQUIRE_API_KEY"), undefined);
+  });
 });
 
 // ──────────────────────────────────────────────────────

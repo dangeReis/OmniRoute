@@ -441,3 +441,11 @@ When parsing streaming LLM responses (e.g. Responses API), check if a chunk repr
 
 ### 3. Database Handles in Tests
 Ensure that any unit tests that trigger database migrations or establish SQLite connections call `resetDbInstance()` and properly clean up/close all DB handles in a `test.after(...)` hook. Failure to release database connection handles will cause Node's native test runner to hang indefinitely.
+
+### 4. Privacy Shield & WAL Learnings
+1. **Authenticated GCM WAL Encryption**: Encrypting sensitive data locally in write-ahead logs must use authenticated encryption (e.g., `aes-256-gcm`) rather than simple `aes-256-cbc`. Storing and verifying the authentication tag prevents tamper attacks and corrupt record injection.
+2. **Composite Key Scoping**: Reverse lookups for placeholder generation should scope keys by both `original` value and its `category` (e.g. `category\x00original` composite key) to prevent category collision or metadata drift if the same original string is redacted under different contexts.
+3. **Map Collision Guards**: Recursive redact/restore operations (e.g. `redactDeep`/`restoreDeep`) traversing Maps must detect key collisions when renaming keys to their redacted/restored values to prevent silent overwrites or data loss.
+4. **Regex Prefix Escaping**: Always escape custom prefix regex metacharacters when dynamically generating validation regex patterns (like `getPlaceholderRegex`) so character classes like `+` are matched literally.
+5. **Throttled Cleanup Scans**: In high-throughput streaming environments, throttle any linear mapping expirations (e.g. `cleanExpired`) to run periodically (e.g. at most once every 5 seconds) to reduce mapping generation cost to $O(1)$ amortized instead of $O(N)$ linear scans on every request.
+
