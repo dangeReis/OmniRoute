@@ -6,12 +6,12 @@ async function getDiff() {
   try {
     // Ensure we have fetched the base branch
     execFileSync("git", ["fetch", "origin", baseBranch], { stdio: "ignore" });
-    const diff = execFileSync("git", ["diff", `origin/${baseBranch}...HEAD`], { encoding: "utf8" });
+    const diff = execFileSync("git", ["diff", `origin/${baseBranch}...HEAD`], { encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
     return diff;
   } catch (err) {
     console.warn("Could not get git diff using origin. Trying HEAD~1...", err.message);
     try {
-      return execFileSync("git", ["diff", "HEAD~1"], { encoding: "utf8" });
+      return execFileSync("git", ["diff", "HEAD~1"], { encoding: "utf8", maxBuffer: 1024 * 1024 * 50 });
     } catch (fallbackErr) {
       console.error("Failed to get git diff:", fallbackErr.message);
       return "";
