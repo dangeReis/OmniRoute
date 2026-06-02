@@ -80,7 +80,9 @@ export class PrivacyShieldWAL {
       .map((record) => this.encrypt(JSON.stringify(record)))
       .join("\n") + "\n";
     
-    fs.writeFileSync(this.filePath, newContent, "utf8");
+    const tmpPath = this.filePath + ".tmp";
+    fs.writeFileSync(tmpPath, newContent, "utf8");
+    fs.renameSync(tmpPath, this.filePath);
   }
 
   private encrypt(text: string): string {

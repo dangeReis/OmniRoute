@@ -156,5 +156,5 @@ export class SessionManager {
 
 export function getPlaceholderRegex(prefix: string = "__PS_"): RegExp {
   const core = prefix.replace(/^_+|_+$/g, "");
-  return new RegExp(`_*${core}_[A-Z0-9_]+_[a-f0-9]{12}(?:_\\d+)?__`);
+  return new RegExp(`_*${core}_[A-Z0-9_]+?_[a-f0-9]{12}(?:_\\d+)?__`);
 }

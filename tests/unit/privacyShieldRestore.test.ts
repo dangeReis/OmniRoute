@@ -105,3 +105,39 @@ test("redactText handles custom patterns without global flag", () => {
   assert.equal(occurrences.length, 2);
 });
 
+test("restoreDeep and redactDeep support Maps (including keys) and Sets", () => {
+  const session = new PlaceholderSession();
+  const emailPatterns = BUILTIN_PATTERNS.filter(p => p.category === "EMAIL");
+
+  const map = new Map<any, any>([
+    ["user@example.com", "contact user@example.com"],
+    ["regular-key", "some-value"]
+  ]);
+  const set = new Set<any>(["user@example.com", "other-val"]);
+
+  const wrapper = { map, set };
+
+  redactDeep(wrapper, emailPatterns, [], session);
+
+  // Verify redaction in Map keys and values
+  const redactedKeys = Array.from(map.keys());
+  const emailKey = redactedKeys.find(k => k.includes("__PS_EMAIL_"));
+  assert.ok(emailKey, "should find redacted email key");
+  assert.ok(map.get(emailKey).includes("__PS_EMAIL_"), "value should also be redacted");
+
+  // Verify redaction in Set
+  const redactedSet = Array.from(set);
+  const emailSetItem = redactedSet.find(item => item.includes("__PS_EMAIL_"));
+  assert.ok(emailSetItem, "Set should contain redacted email");
+
+  restoreDeep(wrapper, session);
+
+  // Verify restoration in Map keys and values
+  assert.ok(map.has("user@example.com"));
+  assert.equal(map.get("user@example.com"), "contact user@example.com");
+
+  // Verify restoration in Set
+  assert.ok(set.has("user@example.com"));
+});
+
+
